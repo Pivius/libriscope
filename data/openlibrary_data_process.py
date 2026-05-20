@@ -29,7 +29,17 @@ LINES_PER_FILE = 2000000
 INPUT_PATH = "./data/raw/openlibrary/"
 OUTPUT_PATH = "./data/processed/openlibrary"
 FILE_IDENTIFIERS = ["authors", "works", "editions", "wikidata", "redirects", "deletes", "reading-log", "ratings", "covers_metadata"]
-
+FILE_LAYOUTS = {
+	"authors": (["type", "key", "revision", "last_modified", "json"], True),
+	"works": (["type", "key", "revision", "last_modified", "json"], True),
+	"editions": (["type", "key", "revision", "last_modified", "json"], True),
+	"wikidata": (["wikidata_id", "json"], True),
+	"redirects": (["type", "key", "revision", "last_modified", "json"], True),
+	"deletes": (["type", "key", "revision", "last_modified", "json"], True),
+	"reading-log": (["work_key", "edition_key", "shelf", "date"], False),
+	"ratings": (["work_key", "edition_key", "rating", "date"], False),
+	"covers_metadata": (["id", "width", "height", "created"], False),
+}
 
 def process_file(source_file: str, file_id) -> None:
 	"""
@@ -40,6 +50,7 @@ def process_file(source_file: str, file_id) -> None:
 
 	base_path = os.path.join(INPUT_PATH, f"ol_dump_{source_file}.txt")
 	gz_path = base_path + ".gz"
+
 	if os.path.exists(gz_path):
 		input_path = gz_path
 		opener = lambda p: gzip.open(p, mode="rt", encoding="utf-8", errors="ignore")
@@ -57,12 +68,14 @@ def process_file(source_file: str, file_id) -> None:
 	try:
 		with opener(input_path) as csv_input_file:
 			reader = csv.reader(csv_input_file, delimiter="\t")
+
 			for line, row in enumerate(reader):
 				# Every time the row limit is reached, open a new chunked csv file
 				if line % LINES_PER_FILE == 0:
 					# close previous chunk file if open
 					if output_fh is not None:
 						output_fh.close()
+
 					chunked_filename = source_file + f"_{line + LINES_PER_FILE}.csv"
 					filenames.append(chunked_filename)
 					output_fh = open(
@@ -75,9 +88,25 @@ def process_file(source_file: str, file_id) -> None:
 						output_fh, delimiter="\t", quotechar="|", quoting=csv.QUOTE_MINIMAL
 					)
 
-				# OL TSV layout: type, key, revision, last_modified, JSON
-				if len(row) > 4 and writer is not None:
-					writer.writerow([row[0], row[1], row[2], row[3], row[4]])
+				# determine expected layout for this source file
+				cols, json_last = FILE_LAYOUTS.get(
+					source_file,
+					(["type", "key", "revision", "last_modified", "json"], True),
+				)
+				expected = len(cols)
+
+				if writer is not None:
+					if json_last:
+						if len(row) >= expected:
+							first = row[: expected - 1]
+							last = "\t".join(row[expected - 1 :])
+							out_row = first + [last]
+						else:
+							out_row = row + [""] * (expected - len(row))
+					else:
+						out_row = row[:expected] + [""] * max(0, expected - len(row))
+
+					writer.writerow(out_row)
 	finally:
 		if output_fh is not None:
 			output_fh.close()
@@ -96,11 +125,36 @@ def process_file(source_file: str, file_id) -> None:
 
 
 if __name__ == "__main__":
+	import argparse
+
+	parser = argparse.ArgumentParser(
+		description="Process OpenLibrary dump files (optionally select specific identifiers)."
+	)
+	parser.add_argument(
+		"--only",
+		"-o",
+		help="Comma-separated identifiers to process (e.g. ratings,wikidata). Defaults to all.",
+		default=None,
+	)
+	args = parser.parse_args()
+
+	if args.only:
+		requested = [s.strip() for s in args.only.split(",") if s.strip()]
+		targets = [t for t in requested if t in FILE_IDENTIFIERS]
+		unknown = [t for t in requested if t not in FILE_IDENTIFIERS]
+		if unknown:
+			print(f"Warning: unknown identifiers ignored: {', '.join(unknown)}")
+		if not targets:
+			print("No valid identifiers to process. Exiting.")
+			raise SystemExit(1)
+	else:
+		targets = FILE_IDENTIFIERS
+
 	with Pool() as pool:
 		results = []
-		for i, filename in enumerate(FILE_IDENTIFIERS):
-			results.append(pool.apply_async(process_file, args=(filename, i)))
-		# Wait for the processes to finish before exiting the main python program
+		for filename in targets:
+			file_id = FILE_IDENTIFIERS.index(filename)
+			results.append(pool.apply_async(process_file, args=(filename, file_id)))
 		for res in results:
 			res.wait()
 	print("Process complete")
