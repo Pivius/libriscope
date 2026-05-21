@@ -11,6 +11,7 @@ import gzip
 import ctypes as ct
 from multiprocessing import Pool
 import os
+import shutil
 
 # Optional if you want to make a smaller copy from the unzipped version for testing
 # sed -i '' '100000,$ d' ./data/raw/openlibrary/ol_dump_editions.txt
@@ -25,6 +26,10 @@ import os
 csv.field_size_limit(int(ct.c_ulong(-1).value // 2))
 
 LINES_PER_FILE = 2000000
+
+TEST_MODE = False
+TEST_LINES_PER_FILE = 1000
+TEST_MAX_FILES = 3
 
 INPUT_PATH = "./data/raw/openlibrary/"
 OUTPUT_PATH = "./data/processed/openlibrary"
@@ -41,10 +46,12 @@ FILE_LAYOUTS = {
 	"covers_metadata": (["id", "width", "height", "created"], False),
 }
 
-def process_file(source_file: str, file_id) -> None:
+def process_file(source_file: str, test_mode: bool, output_path: str, file_id) -> None:
 	"""
 	Processes a single file by chunking it into smaller csv files.
 	Supports .txt and .txt.gz (or .gz) input files.
+	Each finished chunk is gzipped and the original csv removed.
+	Test mode caps chunk size and number of chunks.
 	"""
 	print(f"Currently processing {source_file}")
 
@@ -64,6 +71,20 @@ def process_file(source_file: str, file_id) -> None:
 	filenames = []
 	writer = None
 	output_fh = None
+	last_chunked_filename = None
+	chunk_count = 0
+	chunk_size = TEST_LINES_PER_FILE if test_mode else LINES_PER_FILE
+
+	def _compress_and_replace(name):
+		src = os.path.join(output_path, name)
+		gz_name = src + ".gz"
+
+		with open(src, "rb") as f_in, gzip.open(gz_name, "wb") as f_out:
+			shutil.copyfileobj(f_in, f_out)
+		os.remove(src)
+
+		if filenames and filenames[-1] == name:
+			filenames[-1] = name + ".gz"
 
 	try:
 		with opener(input_path) as csv_input_file:
@@ -71,15 +92,21 @@ def process_file(source_file: str, file_id) -> None:
 
 			for line, row in enumerate(reader):
 				# Every time the row limit is reached, open a new chunked csv file
-				if line % LINES_PER_FILE == 0:
-					# close previous chunk file if open
+				if line % chunk_size == 0:
+					if test_mode and chunk_count >= TEST_MAX_FILES:
+						break
+
+					# close previous chunk file if open and gzip it
 					if output_fh is not None:
 						output_fh.close()
+						if last_chunked_filename is not None:
+							_compress_and_replace(last_chunked_filename)
 
-					chunked_filename = source_file + f"_{line + LINES_PER_FILE}.csv"
+					chunked_filename = source_file + f"_{line + chunk_size}.csv"
+					last_chunked_filename = chunked_filename
 					filenames.append(chunked_filename)
 					output_fh = open(
-						os.path.join(OUTPUT_PATH, chunked_filename),
+						os.path.join(output_path, chunked_filename),
 						"w",
 						newline="",
 						encoding="utf-8",
@@ -87,6 +114,7 @@ def process_file(source_file: str, file_id) -> None:
 					writer = csv.writer(
 						output_fh, delimiter="\t", quotechar="|", quoting=csv.QUOTE_MINIMAL
 					)
+					chunk_count += 1
 
 				# determine expected layout for this source file
 				cols, json_last = FILE_LAYOUTS.get(
@@ -111,9 +139,12 @@ def process_file(source_file: str, file_id) -> None:
 		if output_fh is not None:
 			output_fh.close()
 
-	# append filenames metadata
+			if last_chunked_filename is not None:
+				_compress_and_replace(last_chunked_filename)
+
+	# append filenames metadata (now contains .gz names)
 	with open(
-		os.path.join(OUTPUT_PATH, "filenames.txt"), "a", newline="", encoding="utf-8"
+		os.path.join(output_path, "filenames.txt"), "a", newline="", encoding="utf-8"
 	) as filenames_output:
 		filenames_writer = csv.writer(
 			filenames_output, delimiter="\t", quotechar="|", quoting=csv.QUOTE_MINIMAL
@@ -136,12 +167,23 @@ if __name__ == "__main__":
 		help="Comma-separated identifiers to process (e.g. ratings,wikidata). Defaults to all.",
 		default=None,
 	)
+	parser.add_argument(
+		"--test",
+		action="store_true",
+		help="Enable test/sample mode (reduced chunk size and max files).",
+	)
 	args = parser.parse_args()
+
+	# enable test mode if requested and apply optional overrides
+	if args.test or args.test_lines or args.test_max_files:
+		TEST_MODE = True
+		OUTPUT_PATH = OUTPUT_PATH + "/test"
 
 	if args.only:
 		requested = [s.strip() for s in args.only.split(",") if s.strip()]
 		targets = [t for t in requested if t in FILE_IDENTIFIERS]
 		unknown = [t for t in requested if t not in FILE_IDENTIFIERS]
+
 		if unknown:
 			print(f"Warning: unknown identifiers ignored: {', '.join(unknown)}")
 		if not targets:
@@ -152,9 +194,11 @@ if __name__ == "__main__":
 
 	with Pool() as pool:
 		results = []
+
 		for filename in targets:
 			file_id = FILE_IDENTIFIERS.index(filename)
-			results.append(pool.apply_async(process_file, args=(filename, file_id)))
+			results.append(pool.apply_async(process_file, args=(filename, TEST_MODE, OUTPUT_PATH, file_id)))
 		for res in results:
 			res.wait()
+
 	print("Process complete")
