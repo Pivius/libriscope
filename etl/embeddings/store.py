@@ -22,6 +22,17 @@ class EmbeddingStore:
 	def _embedding_literal(self, vector) -> str:
 		return "[" + ",".join(str(float(x)) for x in vector) + "]"
 
+	def embedding_dimension(self) -> int:
+		"""Read the configured VECTOR() width from the work_embeddings table."""
+		with self.engine.connect() as conn:
+			row = conn.execute(text(
+				"SELECT atttypmod - 8 AS dim FROM pg_attribute "
+				"WHERE attrelid = 'work_embeddings'::regclass AND attname = 'embedding'"
+			)).first()
+		if row is None or row[0] is None:
+			raise RuntimeError("work_embeddings.embedding column has no fixed vector dimension")
+		return int(row[0])
+
 	def upsert_work(self, item: CanonicalItem) -> None:
 		sql = text("""
 			INSERT INTO works (id, title, subtitle, description, first_sentence, subjects, genres, authors, languages, first_publish_date, series, source)

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS works (
 CREATE TABLE IF NOT EXISTS work_embeddings (
     work_id TEXT PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
 
-    -- gte-base-en-v1.5 is 768 dims
+    -- nomic-embed-text (local Ollama build) reports embedding_length 768
     embedding VECTOR(768)
 );
 

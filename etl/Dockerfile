@@ -18,6 +18,6 @@ COPY . /app
 RUN useradd -m etluser && chown -R etluser /app
 USER etluser
 
-ENV EMBEDDINGS_MODEL=gte-base-en-v1.5
+ENV EMBEDDINGS_MODEL=nomic-embed-text
 
 ENTRYPOINT ["./entrypoint.sh"]

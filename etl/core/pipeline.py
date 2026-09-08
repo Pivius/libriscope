@@ -28,6 +28,15 @@ def run_pipeline(
     if write_embeddings:
         from etl.embeddings.model import get_model
         model = get_model()
+        if store is not None:
+            db_dim = store.embedding_dimension()
+            model_dim = model.dimension
+            if db_dim != model_dim:
+                raise RuntimeError(
+                    f"Embedding dimension mismatch: model '{model.model_name}' produces "
+                    f"{model_dim} dims but work_embeddings is VECTOR({db_dim}). "
+                    f"Update infra/init.sql to match, then re-run db-init."
+                )
 
     count = 0
     items = adapter.collate_from_dir(processed_dir, enabled=enabled, max_aux=max_aux)
