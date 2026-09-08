@@ -8,6 +8,8 @@ class OllamaEmbedder:
 	"""Client for Ollama's local /api/embed endpoint."""
 
 	def __init__(self, host: Optional[str] = None, model_name: Optional[str] = None, timeout: float = 120.0) -> None:
+		from etl.core.config import load_env
+		load_env()
 		self.host = (host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
 		self.model_name = model_name or os.environ.get("EMBEDDINGS_MODEL", "nomic-embed-text")
 		self.timeout = timeout
