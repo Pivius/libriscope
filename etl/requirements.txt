@@ -1,0 +1,9 @@
+psycopg2-binary
+sqlalchemy
+pgvector
+pandas
+tqdm
+python-dotenv
+requests
+transformers
+sentence-transformers

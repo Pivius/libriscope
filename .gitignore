@@ -3,3 +3,7 @@
 .vscode/
 .idea/
 *.log
+__pycache__/
+.env
+.filestructure
+
