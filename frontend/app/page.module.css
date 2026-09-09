@@ -1,150 +1,209 @@
-.page {
-  --background: #fafafa;
-  --foreground: #fff;
-
-  --text-primary: #000;
-  --text-secondary: #666;
-
-  --button-primary-hover: #383838;
-  --button-secondary-hover: #f2f2f2;
-  --button-secondary-border: #ebebeb;
-
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-geist-sans);
-  background-color: var(--background);
+.mapPage {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
 }
 
-.main {
-  display: flex;
-  flex: 1;
-  width: 100%;
-  max-width: 800px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  background-color: var(--foreground);
-  padding: 120px 60px;
+.mapCanvasWrap {
+	position: relative;
+	flex: 1;
+	min-height: 0;
 }
 
-.intro {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  gap: 24px;
+.mapCanvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+	cursor: grab;
 }
 
-.intro h1 {
-  max-width: 320px;
-  font-size: 40px;
-  font-weight: 600;
-  line-height: 48px;
-  letter-spacing: -2.4px;
-  text-wrap: balance;
-  color: var(--text-primary);
+.mapCanvas:active {
+	cursor: grabbing;
 }
 
-.intro p {
-  max-width: 440px;
-  font-size: 18px;
-  line-height: 32px;
-  text-wrap: balance;
-  color: var(--text-secondary);
+.toolbar {
+	display: flex;
+	align-items: stretch;
+	padding: 12px 20px;
+	background: var(--paper);
+	border-bottom: 1px solid var(--ink);
+	position: relative;
+	z-index: 10;
 }
 
-.intro a {
-  font-weight: 500;
-  color: var(--text-primary);
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-right: auto;
 }
 
-.ctas {
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-  max-width: 440px;
-  gap: 16px;
-  font-size: 14px;
+.brandMark {
+	width: 10px;
+	height: 10px;
+	background: var(--accent);
 }
 
-.ctas a {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 128px;
-  border: 1px solid transparent;
-  transition: 0.2s;
-  cursor: pointer;
-  width: fit-content;
-  font-weight: 500;
+.brandText {
+	display: flex;
+	flex-direction: column;
+	line-height: 1;
+	gap: 4px;
 }
 
-a.primary {
-  background: var(--text-primary);
-  color: var(--background);
-  gap: 8px;
+.brandKana {
+	font-size: 11px;
+	letter-spacing: 0.28em;
+	color: var(--ink-soft);
 }
 
-a.secondary {
-  border-color: var(--button-secondary-border);
+.brandLatin {
+	font-size: 14px;
+	font-weight: 700;
+	letter-spacing: 0.32em;
+	text-transform: uppercase;
 }
 
-/* Enable hover only on non-touch devices */
-@media (hover: hover) and (pointer: fine) {
-  a.primary:hover {
-    background: var(--button-primary-hover);
-    border-color: transparent;
-  }
-
-  a.secondary:hover {
-    background: var(--button-secondary-hover);
-    border-color: transparent;
-  }
+.toggle {
+	display: inline-flex;
+	align-self: center;
+	border: 1px solid var(--ink-faint);
 }
 
-@media (max-width: 600px) {
-  .main {
-    padding: 48px 24px;
-  }
-
-  .intro {
-    gap: 16px;
-  }
-
-  .intro h1 {
-    font-size: 32px;
-    line-height: 40px;
-    letter-spacing: -1.92px;
-  }
+.toggle button {
+	appearance: none;
+	border: none;
+	background: transparent;
+	color: var(--ink-soft);
+	font: inherit;
+	font-size: 11px;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	padding: 7px 16px;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 6px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .logo {
-    filter: invert();
-  }
-
-  .page {
-    --background: #000;
-    --foreground: #000;
-
-    --text-primary: #ededed;
-    --text-secondary: #999;
-
-    --button-primary-hover: #ccc;
-    --button-secondary-hover: #1a1a1a;
-    --button-secondary-border: #1a1a1a;
-  }
+.toggle button + button {
+	border-left: 1px solid var(--ink-faint);
 }
 
-.code {
-  font-family: var(--font-geist-mono);
-  font-size: 0.9em;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  padding: 0.1em 0.4em;
-  border-radius: 6px;
+.toggle button .ja {
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	color: var(--ink-soft);
+}
+
+.toggle button.active {
+	background: var(--ink);
+	color: var(--paper);
+}
+
+.toggle button.active .ja {
+	color: var(--paper);
+}
+
+.countMeta {
+	align-self: center;
+	margin-left: 28px;
+	font-size: 10px;
+	letter-spacing: 0.24em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.countMeta::before {
+	content: "";
+	width: 14px;
+	height: 1px;
+	background: var(--accent);
+}
+
+.selectedChip {
+	appearance: none;
+	align-self: center;
+	margin-left: 20px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	border: 1px solid var(--accent);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: 11px;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	padding: 6px 12px;
+	cursor: pointer;
+	max-width: 40vw;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.selectedChip::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	flex: none;
+	background: var(--accent);
+}
+
+.selectedChip .label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.selectedChip .clear {
+	color: var(--accent);
+	font-size: 14px;
+	line-height: 1;
+}
+
+.tooltip {
+	position: fixed;
+	z-index: 20;
+	pointer-events: none;
+	background: linear-gradient(180deg, var(--paper) 0%, var(--paper-2) 100%);
+	border: 1px solid var(--ink);
+	padding: 10px 14px;
+	font-size: 13px;
+	max-width: 340px;
+	box-shadow: 0 2px 12px rgba(34, 31, 28, 0.12);
+	transform: translate(16px, 16px);
+}
+
+.tooltip .title {
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	color: var(--ink);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.tooltip .title::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	flex: none;
+	background: var(--accent);
+}
+
+.tooltip .rule {
+	height: 1px;
+	background: var(--accent);
+	margin: 8px 0 6px;
+}
+
+.tooltip .sub {
+	color: var(--ink-soft);
+	font-size: 10px;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
 }
