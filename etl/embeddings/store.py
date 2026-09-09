@@ -1,17 +1,18 @@
 import os
 from typing import Any, Iterable, List, Optional, Tuple
-from urllib.parse import urlparse
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from etl.core.canonical import CanonicalItem
+from etl.core.config import load_env
 
 
 class EmbeddingStore:
 	"""Write CanonicalItems + embeddings into Postgres (pgvector)."""
 
 	def __init__(self, database_url: Optional[str] = None) -> None:
+		load_env()
 		url = database_url or os.environ.get("DATABASE_URL")
 		if not url:
 			raise RuntimeError("DATABASE_URL is not set")
@@ -23,13 +24,21 @@ class EmbeddingStore:
 		return "[" + ",".join(str(float(x)) for x in vector) + "]"
 
 	def embedding_dimension(self) -> int:
-		"""Read the configured VECTOR() width from the work_embeddings table."""
+		"""Read the configured VECTOR(n) width from the work_embeddings table.
+
+		pgvector stores the dimension directly in the column's atttypmod
+		(e.g. vector(768) -> atttypmod = 768).
+		"""
 		with self.engine.connect() as conn:
 			row = conn.execute(text(
-				"SELECT atttypmod - 8 AS dim FROM pg_attribute "
-				"WHERE attrelid = 'work_embeddings'::regclass AND attname = 'embedding'"
+				"SELECT a.atttypmod "
+				"FROM pg_attribute a "
+				"JOIN pg_class c ON c.oid = a.attrelid "
+				"JOIN pg_namespace n ON n.oid = c.relnamespace "
+				"WHERE n.nspname = 'public' AND c.relname = 'work_embeddings' "
+				"AND a.attname = 'embedding'"
 			)).first()
-		if row is None or row[0] is None:
+		if row is None or row[0] is None or row[0] < 0:
 			raise RuntimeError("work_embeddings.embedding column has no fixed vector dimension")
 		return int(row[0])
 
