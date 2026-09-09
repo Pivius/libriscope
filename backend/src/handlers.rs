@@ -14,11 +14,23 @@ pub async fn health(State(AppState { pool, .. }): State<AppState>) -> Result<Jso
 }
 
 pub async fn get_book(
-    State(_state): State<AppState>,
-    Path(_id): Path<String>,
+    State(AppState { pool, .. }): State<AppState>,
+    Path(id): Path<String>,
 ) -> Result<Json<Book>, AppError> {
-    // TODO: fetch a book by work id from `works`.
-    Err(AppError::NotFound("not implemented".to_string()))
+    let book = sqlx::query_as::<_, Book>(
+        r#"
+        SELECT id, title, subtitle, description, subjects, genres, authors,
+			languages, first_publish_date, series
+        FROM works
+        WHERE id = $1
+        "#,
+    )
+    .bind(&id)
+    .fetch_optional(pool.as_ref())
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("book '{id}' not found")))?;
+
+    Ok(Json(book))
 }
 
 pub async fn recommend_books(
