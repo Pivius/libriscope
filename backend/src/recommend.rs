@@ -2,7 +2,9 @@ use std::format;
 use sqlx::PgPool;
 
 use crate::error::AppError;
-use crate::models::{Recommendation, RecommendRequest};
+use crate::models::{
+	AuthorRecommendation, AuthorRecommendRequest, Recommendation, RecommendRequest,
+};
 
 /// Mean of a slice of equal-length vectors.
 fn centroid(vectors: &[Vec<f32>]) -> Vec<f32> {
@@ -89,6 +91,60 @@ pub async fn recommend(pool: &PgPool, req: &RecommendRequest) -> Result<Vec<Reco
 		.map(|(work_id, title, similarity)| Recommendation {
 			work_id,
 			title,
+			similarity: similarity as f32,
+		})
+		.collect();
+
+	Ok(recommendations)
+}
+
+pub async fn recommend_authors(
+	pool: &PgPool,
+	req: &AuthorRecommendRequest,
+) -> Result<Vec<AuthorRecommendation>, AppError> {
+	if req.author_names.is_empty() {
+		return Err(AppError::BadRequest(
+			"author_names must contain at least one name".to_string(),
+		));
+	}
+
+	// fetch the input authors' embeddings
+	let rows = sqlx::query_as::<_, (String, String)>(
+		"SELECT name, embedding::text FROM authors WHERE name = ANY($1)",
+	)
+		.bind(&req.author_names)
+		.fetch_all(pool)
+		.await?;
+
+	if rows.is_empty() {
+		return Ok(Vec::new());
+	}
+
+	let vectors: Vec<Vec<f32>> = rows.iter().map(|(_, t)| parse_vector(t)).collect();
+	let centroid = centroid(&vectors);
+	let query_vec = format_vector(&centroid);
+
+	let limit = req.limit.min(50) as i64;
+
+	let recs = sqlx::query_as::<_, (String, f64)>(
+		r#"
+		SELECT a.name, 1 - (a.embedding <=> $1::vector) AS similarity
+		FROM authors a
+		WHERE NOT (a.name = ANY($2))
+		ORDER BY a.embedding <=> $1::vector
+		LIMIT $3
+		"#,
+	)
+		.bind(&query_vec)
+		.bind(&req.author_names)
+		.bind(limit)
+		.fetch_all(pool)
+		.await?;
+
+	let recommendations = recs
+		.into_iter()
+		.map(|(name, similarity)| AuthorRecommendation {
+			name,
 			similarity: similarity as f32,
 		})
 		.collect();

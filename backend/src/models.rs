@@ -42,3 +42,44 @@ pub struct RecommendResponse {
 pub struct HealthResponse {
 	pub status: String,
 }
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct MapNode {
+	pub id: String,
+	pub label: String,
+	pub x: f64,
+	pub y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct AuthorNode {
+	pub name: String,
+	pub work_count: i32,
+	pub x: f64,
+	pub y: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuthorDetail {
+	pub name: String,
+	pub work_count: i32,
+	pub works: Vec<Book>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuthorRecommendRequest {
+	pub author_names: Vec<String>,
+	#[serde(default = "default_limit")]
+	pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuthorRecommendation {
+	pub name: String,
+	pub similarity: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuthorRecommendResponse {
+	pub recommendations: Vec<AuthorRecommendation>,
+}
