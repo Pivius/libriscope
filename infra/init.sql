@@ -1,32 +1,32 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS works (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    subtitle TEXT,
-    description TEXT,
-    first_sentence TEXT,
-    subjects TEXT[],
-    genres TEXT[],
-    authors TEXT[],
-    languages TEXT[],
-    first_publish_date TEXT,
-    series TEXT[],
-    source TEXT DEFAULT 'openlibrary'
+	id TEXT PRIMARY KEY,
+	title TEXT,
+	subtitle TEXT,
+	description TEXT,
+	first_sentence TEXT,
+	subjects TEXT[],
+	genres TEXT[],
+	authors TEXT[],
+	languages TEXT[],
+	first_publish_date TEXT,
+	series TEXT[],
+	source TEXT DEFAULT 'openlibrary'
 );
 
 CREATE TABLE IF NOT EXISTS work_embeddings (
-    work_id TEXT PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
+	work_id TEXT PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
 
-    -- nomic-embed-text (local Ollama build) reports embedding_length 768
-    embedding VECTOR(768)
+	-- nomic-embed-text (local Ollama build) reports embedding_length 768
+	embedding VECTOR(768)
 );
 
 CREATE TABLE IF NOT EXISTS ratings (
-    work_id TEXT,
-    edition_id TEXT,
-    rating SMALLINT,
-    date TIMESTAMP
+	work_id TEXT,
+	edition_id TEXT,
+	rating SMALLINT,
+	date TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_work_embeddings_vector

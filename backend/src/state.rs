@@ -4,5 +4,5 @@ use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: Arc<PgPool>,
+	pub pool: Arc<PgPool>,
 }
