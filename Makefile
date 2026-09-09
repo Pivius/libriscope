@@ -1,8 +1,9 @@
 PYTHON ?= python
 PIP ?= pip
 PYTEST ?= pytest
+CARGO ?= cargo
 
-.PHONY: help install test etl rebuild-embeddings db-up db-down db-init inspect ollama-pull ollama-check
+.PHONY: help install test etl rebuild-embeddings db-up db-down db-init inspect ollama-pull ollama-check backend-build backend-run backend-test
 
 help:
 	@echo "Available targets:"
@@ -15,6 +16,9 @@ help:
 	@echo "  db-up / db-down      Manage local Postgres via docker-compose"
 	@echo "  ollama-pull          Download the embedding model into Ollama"
 	@echo "  ollama-check         Verify Ollama + embedding model are reachable"
+	@echo "  backend-build        Build the Rust backend"
+	@echo "  backend-run          Run the Rust backend (cargo run)"
+	@echo "  backend-test         Run Rust backend tests"
 
 install:
 	$(PIP) install -r etl/requirements.txt
@@ -45,3 +49,12 @@ ollama-pull:
 
 ollama-check:
 	PYTHONPATH=. $(PYTHON) -c "from etl.embeddings.model import get_model; ok = get_model().ping(); print('Ollama reachable and model available' if ok else 'Ollama unreachable or model missing'); exit(0 if ok else 1)"
+
+backend-build:
+	$(CARGO) build --manifest-path backend/Cargo.toml
+
+backend-run:
+	$(CARGO) run --manifest-path backend/Cargo.toml
+
+backend-test:
+	$(CARGO) test --manifest-path backend/Cargo.toml
