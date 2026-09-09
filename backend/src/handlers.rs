@@ -6,10 +6,11 @@ use crate::models::{Book, HealthResponse, RecommendRequest, RecommendResponse};
 use crate::recommend;
 use crate::state::AppState;
 
-pub async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse {
+pub async fn health(State(AppState { pool, .. }): State<AppState>) -> Result<Json<HealthResponse>, AppError> {
+    sqlx::query("SELECT 1").execute(pool.as_ref()).await?;
+    Ok(Json(HealthResponse {
         status: "ok".to_string(),
-    })
+    }))
 }
 
 pub async fn get_book(

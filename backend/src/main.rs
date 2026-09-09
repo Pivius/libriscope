@@ -13,7 +13,6 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
-use crate::db::Db;
 use crate::state::AppState;
 
 fn app(state: AppState) -> Router {
@@ -36,12 +35,12 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
-    let db = Db::connect(&config.database_url)
+    let pool = db::connect(&config.database_url)
         .await
         .expect("failed to connect to database");
 
     let state = AppState {
-        db: Arc::new(db),
+        pool: Arc::new(pool),
     };
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)

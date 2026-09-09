@@ -1,10 +1,14 @@
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 
-#[derive(Clone)]
-pub struct Db;
+pub async fn connect(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(database_url)
+        .await?;
 
-impl Db {
-    pub async fn connect(_database_url: &str) -> Result<Self, String> {
-        // TODO: create a connection pool from `database_url`.
-        Ok(Db)
-    }
+    // Fails fast on bad config.
+    sqlx::query("SELECT 1").execute(&pool).await?;
+
+    Ok(pool)
 }
