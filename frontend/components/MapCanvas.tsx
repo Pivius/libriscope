@@ -12,15 +12,19 @@ export interface MapItem {
 	x: number;
 	y: number;
 	workCount?: number;
+	similarity?: number;
+	neighbor?: boolean;
 }
 
 interface MapCanvasProps {
 	items: MapItem[];
+	neighbors: MapItem[];
 	mode: "books" | "authors";
 	hovered: MapItem | null;
 	selected: MapItem | null;
 	onHover: (item: MapItem | null) => void;
 	onSelect: (item: MapItem | null) => void;
+	focusRequest: { item: MapItem; nonce: number } | null;
 }
 
 const WORLD_SCALE = 380; // pixels per unit (coords are in [-1, 1])
@@ -80,6 +84,7 @@ function setLetterSpacing(ctx: CanvasRenderingContext2D, value: string) {
 
 interface RenderState {
 	items: MapItem[];
+	neighbors: MapItem[];
 	mode: "books" | "authors";
 	hovered: MapItem | null;
 	selected: MapItem | null;
@@ -89,21 +94,25 @@ interface RenderState {
 
 export default function MapCanvas({
 	items,
+	neighbors,
 	mode,
 	hovered,
 	selected,
 	onHover,
 	onSelect,
+	focusRequest,
 }: MapCanvasProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const transformRef = useRef(zoomIdentity);
+	const zoomRef = useRef<ZoomBehavior<HTMLCanvasElement, unknown> | null>(null);
 	const screenRef = useRef<{ item: MapItem; sx: number; sy: number }[]>([]);
 	const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
 	
 	// latest props accessible from stable handlers
 	const stateRef = useRef<RenderState>({
 		items,
+		neighbors,
 		mode,
 		hovered,
 		selected,
@@ -111,8 +120,8 @@ export default function MapCanvas({
 		onSelect,
 	});
 	useEffect(() => {
-		stateRef.current = { items, mode, hovered, selected, onHover, onSelect };
-	}, [items, mode, hovered, selected, onHover, onSelect]);
+		stateRef.current = { items, neighbors, mode, hovered, selected, onHover, onSelect };
+	}, [items, neighbors, mode, hovered, selected, onHover, onSelect]);
 	
 	const draw = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -122,7 +131,7 @@ export default function MapCanvas({
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
 		
-		const { items: nodes, mode: m, hovered: hov, selected: sel } =
+		const { items: nodes, neighbors: nbrs, mode: m, hovered: hov, selected: sel } =
 		stateRef.current;
 		
 		const dpr = window.devicePixelRatio || 1;
@@ -218,35 +227,75 @@ export default function MapCanvas({
 			screen.push({ item, sx, sy });
 		}
 		screenRef.current = screen;
-		
-		for (const { item, sx, sy } of screen) {
-			const isSel = sel?.key === item.key;
-			const isHov = hov?.key === item.key;
-			
-			if (isSel) {
+
+		const nbrScreen = nbrs.map((item) => {
+			const [sx, sy] = toScreen(item.x, item.y);
+			return { item, sx, sy };
+		});
+		screenRef.current = screen.concat(nbrScreen);
+
+		const hasNbr = nbrScreen.length > 0;
+		const selScreen = screen.find((s) => s.item.key === sel?.key) ?? null;
+
+		// rays from selection to each neighbor
+		if (hasNbr && selScreen) {
+			ctx.strokeStyle = "rgba(227, 66, 52, 0.28)";
+			ctx.lineWidth = 1;
+			for (const nb of nbrScreen) {
 				ctx.beginPath();
-				ctx.arc(sx, sy, DOT_RADIUS + 3, 0, Math.PI * 2);
-				ctx.strokeStyle = PAPER_TOP;
-				ctx.lineWidth = 2.5;
+				ctx.moveTo(selScreen.sx, selScreen.sy);
+				ctx.lineTo(nb.sx, nb.sy);
 				ctx.stroke();
 			}
-			
-			ctx.beginPath();
-			ctx.arc(sx, sy, isSel ? 4.5 : isHov ? 3.5 : DOT_RADIUS, 0, Math.PI * 2);
-			ctx.fillStyle = isSel ? ACCENT : isHov ? INK : colorFor(item.x, item.y);
-			ctx.fill();
+		}
 
-			if (!isSel && !isHov) {
+		// base dots (faded while a neighborhood is shown)
+		for (const { item, sx, sy } of screen) {
+			const isSel = sel?.key === item.key;
+			if (isSel) continue;
+			const isHov = hov?.key === item.key;
+			ctx.globalAlpha = hasNbr ? 0.22 : 1;
+			ctx.beginPath();
+			ctx.arc(sx, sy, isHov ? 3.5 : DOT_RADIUS, 0, Math.PI * 2);
+			ctx.fillStyle = isHov ? INK : colorFor(item.x, item.y);
+			ctx.fill();
+			if (!isHov) {
 				ctx.strokeStyle = INK_OUTLINE;
 				ctx.lineWidth = 0.5;
 				ctx.stroke();
 			}
 		}
+		ctx.globalAlpha = 1;
+
+		// selected node stays bright
+		if (selScreen) {
+			ctx.beginPath();
+			ctx.arc(selScreen.sx, selScreen.sy, DOT_RADIUS + 3, 0, Math.PI * 2);
+			ctx.strokeStyle = PAPER_TOP;
+			ctx.lineWidth = 2.5;
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.arc(selScreen.sx, selScreen.sy, 4.5, 0, Math.PI * 2);
+			ctx.fillStyle = ACCENT;
+			ctx.fill();
+		}
+
+		// neighbor dots
+		for (const nb of nbrScreen) {
+			const isHov = hov?.key === nb.item.key;
+			ctx.beginPath();
+			ctx.arc(nb.sx, nb.sy, isHov ? 4 : 3, 0, Math.PI * 2);
+			ctx.fillStyle = isHov ? INK : ACCENT;
+			ctx.fill();
+		}
 		
 		if (t.k >= LABEL_MIN_ZOOM) {
 			const cx = w / 2;
 			const cy = h / 2;
-			const sorted = [...screen].sort((a, b) => {
+			const labelSet = hasNbr
+				? nbrScreen.concat(selScreen ? [selScreen] : [])
+				: screen;
+			const sorted = [...labelSet].sort((a, b) => {
 				const da = (a.sx - cx) ** 2 + (a.sy - cy) ** 2;
 				const db = (b.sx - cx) ** 2 + (b.sy - cy) ** 2;
 				return da - db;
@@ -349,10 +398,48 @@ export default function MapCanvas({
 		
 		select(canvas).call(zoomBehavior);
 		
+		zoomRef.current = zoomBehavior;
+		
 		return () => {
 			select(canvas).on(".zoom", null);
+			zoomRef.current = null;
 		};
 	}, [draw]);
+
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		const wrap = wrapRef.current;
+		const z = zoomRef.current;
+		if (!canvas || !wrap || !z || !focusRequest || !focusRequest.item) return;
+		const k = Math.max(transformRef.current.k, 3);
+		const lx = focusRequest.item.x * WORLD_SCALE;
+		const ly = focusRequest.item.y * WORLD_SCALE;
+		const target = zoomIdentity
+			.translate(wrap.clientWidth / 2 - k * lx, wrap.clientHeight / 2 - k * ly)
+			.scale(k);
+
+		const start = transformRef.current;
+		const duration = 600;
+		const startTime = performance.now();
+
+		let raf = 0;
+		const step = (now: number) => {
+			const p = Math.min(1, (now - startTime) / duration);
+			const e = 1 - Math.pow(1 - p, 3);
+			const t = zoomIdentity
+				.translate(
+					start.x + (target.x - start.x) * e,
+					start.y + (target.y - start.y) * e,
+				)
+				.scale(start.k + (target.k - start.k) * e);
+			transformRef.current = t;
+			select(canvas).call(z.transform, t);
+			if (p < 1) raf = requestAnimationFrame(step);
+		};
+		raf = requestAnimationFrame(step);
+
+		return () => cancelAnimationFrame(raf);
+	}, [focusRequest]);
 	
 	useEffect(() => {
 		const canvas = canvasRef.current;
@@ -430,7 +517,7 @@ export default function MapCanvas({
 	
 	useEffect(() => {
 		draw();
-	}, [items, mode, hovered, selected, draw]);
+	}, [items, neighbors, mode, hovered, selected, draw]);
 
 	const tooltipItem = hovered;
 
@@ -443,12 +530,19 @@ export default function MapCanvas({
 				style={{ left: tooltip.x, top: tooltip.y }}
 			>
 			<div className={styles.title}>{tooltipItem.label}</div>
-			{tooltipItem.workCount !== undefined ? (
+			{tooltipItem.similarity !== undefined || tooltipItem.workCount !== undefined ? (
 				<>
 				<div className={styles.rule} />
-				<div className={styles.sub}>
-					{tooltipItem.workCount} works
-				</div>
+				{tooltipItem.similarity !== undefined ? (
+					<div className={styles.sub}>
+						{Math.round(tooltipItem.similarity * 100)}% similar
+					</div>
+				) : null}
+				{tooltipItem.workCount !== undefined ? (
+					<div className={styles.sub}>
+						{tooltipItem.workCount} works
+					</div>
+				) : null}
 				</>
 			) : null}
 			</div>
