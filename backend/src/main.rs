@@ -69,11 +69,8 @@ mod tests {
 	use tower::ServiceExt;
 
 	async fn test_pool() -> Option<sqlx::PgPool> {
-		// bootstrap env so DATABASE_URL (from ../.env) is available when running `cargo test`.
-		let _ = dotenvy::dotenv();
-		if let Ok(cwd) = std::env::current_dir() {
-			let _ = dotenvy::from_path(cwd.join(".env"));
-		}
+		// bootstrap env so DATABASE_URL is available for `cargo test`.
+		crate::config::load_dotenv();
 		let url = std::env::var("DATABASE_URL").ok()?;
 		let pool = db::connect(&url).await.ok()?;
 		Some(pool)

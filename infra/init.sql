@@ -41,3 +41,24 @@ ON works (languages);
 
 CREATE INDEX IF NOT EXISTS idx_ratings_work
 ON ratings (work_id);
+
+CREATE TABLE IF NOT EXISTS authors (
+	name TEXT PRIMARY KEY,
+	work_count INT NOT NULL,
+	embedding VECTOR(768)
+);
+
+CREATE INDEX IF NOT EXISTS idx_authors_embedding
+ON authors
+USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS idx_authors_name
+ON authors (name);
+
+CREATE TABLE IF NOT EXISTS map_coords (
+	entity TEXT NOT NULL,
+	entity_id TEXT NOT NULL,
+	x DOUBLE PRECISION NOT NULL,
+	y DOUBLE PRECISION NOT NULL,
+	PRIMARY KEY (entity, entity_id)
+);

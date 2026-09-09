@@ -1,4 +1,22 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
+
+/// Load `.env` from the current directory, searching upward until one is found.
+///
+/// The `.env` lives at the repo root, but the backend may be run from either
+/// the repo root (`make backend-run`) or `backend/` (`cargo run`).
+pub fn load_dotenv() {
+	let _ = dotenvy::dotenv();
+
+	let mut dir = std::env::current_dir().ok();
+	while let Some(current) = dir {
+		let candidate = current.join(".env");
+		if candidate.exists() && dotenvy::from_path(&candidate).is_ok() {
+			return;
+		}
+		dir = current.parent().map(PathBuf::from);
+	}
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -8,11 +26,7 @@ pub struct Config {
 
 impl Config {
 	pub fn from_env() -> Self {
-		// .env lives at the repo root
-		let _ = dotenvy::dotenv();
-		if let Ok(path) = std::env::current_dir() {
-			let _ = dotenvy::from_path(path.join(".env"));
-		}
+		load_dotenv();
 
 		let database_url =
 			std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");

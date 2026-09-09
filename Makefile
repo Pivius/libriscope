@@ -3,14 +3,16 @@ PIP ?= pip
 PYTEST ?= pytest
 CARGO ?= cargo
 
-.PHONY: help install test etl rebuild-embeddings db-up db-down db-init inspect ollama-pull ollama-check backend-build backend-run backend-test
+.PHONY: help install test etl rebuild-embeddings author-embeddings map-coords db-up db-down db-init inspect ollama-pull ollama-check backend-build backend-run backend-test
 
 help:
 	@echo "Available targets:"
 	@echo "  install              Install ETL Python dependencies"
 	@echo "  test                 Run unit tests"
-	@echo "  etl                  Run full OpenLibrary ingest (raw -> embed -> DB)"
+  @echo "  etl                  Run full OpenLibrary ingest (raw -> embed -> DB)"
 	@echo "  rebuild-embeddings   Recompute embeddings only"
+	@echo "  author-embeddings    Build author embeddings from work embeddings"
+	@echo "  map-coords           Compute 2D PCA map coordinates (books + authors)"
 	@echo "  db-init              Apply infra/init.sql schema"
 	@echo "  inspect              Inspect a gz dump (PATH=<file>)"
 	@echo "  db-up / db-down      Manage local Postgres via docker-compose"
@@ -31,6 +33,12 @@ etl:
 
 rebuild-embeddings:
 	PYTHONPATH=. $(PYTHON) -m etl.jobs.rebuild_embeddings
+
+author-embeddings:
+	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_author_embeddings
+
+map-coords:
+	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_map_coords
 
 db-init:
 	psql "$(DATABASE_URL)" -f infra/init.sql

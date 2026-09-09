@@ -2,6 +2,7 @@ psycopg2-binary
 sqlalchemy
 pgvector
 pandas
+numpy
 tqdm
 python-dotenv
 requests
