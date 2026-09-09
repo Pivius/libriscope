@@ -1,8 +1,7 @@
 # Libriscope
 
-A semantic literature discovery system that recommends books based on meaning, themes and tone, rather than
-
-The goal of this project is to explore how vector databases and semantic similarity can be used to recommend literature based on meaning, themes, tone, and reader preference, rather than simple genre matching.
+A semantic literature discovery system that recommends books based on meaning, themes and tone, rather than 
+than simple genre matching.
 
 Download the latest database dump OpenLibrary ingest scripts [here](https://openlibrary.org/developers/dumps).
 
