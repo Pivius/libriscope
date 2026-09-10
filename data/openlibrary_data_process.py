@@ -53,7 +53,8 @@ def process_file(source_file: str, test_mode: bool, output_path: str, file_id) -
 	Each finished chunk is gzipped and the original csv removed.
 	Test mode caps chunk size and number of chunks.
 	"""
-	print(f"Currently processing {source_file}")
+	progress_interval = 100 if test_mode else 100_000
+	print(f"[{source_file}] Starting processing ...", flush=True)
 
 	base_path = os.path.join(INPUT_PATH, f"ol_dump_{source_file}.txt")
 	gz_path = base_path + ".gz"
@@ -73,6 +74,7 @@ def process_file(source_file: str, test_mode: bool, output_path: str, file_id) -
 	output_fh = None
 	last_chunked_filename = None
 	chunk_count = 0
+	total_lines = 0
 	chunk_size = TEST_LINES_PER_FILE if test_mode else LINES_PER_FILE
 
 	def _compress_and_replace(name):
@@ -135,6 +137,10 @@ def process_file(source_file: str, test_mode: bool, output_path: str, file_id) -
 						out_row = row[:expected] + [""] * max(0, expected - len(row))
 
 					writer.writerow(out_row)
+
+				total_lines += 1
+				if total_lines % progress_interval == 0:
+					print(f"[{source_file}] {total_lines:,} lines processed (chunk {chunk_count})", flush=True)
 	finally:
 		if output_fh is not None:
 			output_fh.close()
@@ -152,7 +158,7 @@ def process_file(source_file: str, test_mode: bool, output_path: str, file_id) -
 		filenames_writer.writerow(
 			[source_file, file_id, False, "{" + ",".join(filenames).strip("'") + "}"]
 		)
-		print(f"{source_file} text file has now been processed")
+		print(f"[{source_file}] Done — {total_lines:,} lines, {chunk_count} chunks", flush=True)
 
 
 if __name__ == "__main__":
@@ -175,7 +181,7 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 
 	# enable test mode if requested and apply optional overrides
-	if args.test or args.test_lines or args.test_max_files:
+	if args.test:
 		TEST_MODE = True
 		OUTPUT_PATH = OUTPUT_PATH + "/test"
 
@@ -201,4 +207,4 @@ if __name__ == "__main__":
 		for res in results:
 			res.wait()
 
-	print("Process complete")
+	print(f"Processing complete: {', '.join(targets)}")

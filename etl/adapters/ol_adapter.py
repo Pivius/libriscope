@@ -1,11 +1,14 @@
 import os
 import glob
+import ctypes as ct
 import csv
 import gzip
 import json
 from typing import Iterator, Dict, Any, List, Optional, Iterable
 from etl.core.canonical import CanonicalItem
 from etl.adapters.base import DatasetAdapter
+
+csv.field_size_limit(int(ct.c_ulong(-1).value // 2))
 
 
 def _open_maybe_gzip(path: str):
