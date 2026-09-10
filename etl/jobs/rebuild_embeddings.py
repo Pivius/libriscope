@@ -17,6 +17,8 @@ def main() -> None:
 		write_db=False,
 		write_embeddings=True,
 		max_aux=args.max_aux,
+		max_works=None,
+		skip_existing=False,
 	)
 	print(f"Rebuilt embeddings for {count} works")
 

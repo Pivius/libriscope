@@ -22,7 +22,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/libriscope
       - OLLAMA_HOST=http://host.docker.internal:11434
-      - EMBEDDINGS_MODEL=bge-m3
+      - EMBEDDINGS_MODEL=mxbai-embed-large
     depends_on:
       - db
     volumes:

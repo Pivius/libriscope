@@ -10,7 +10,7 @@ help:
 	@echo "  install              Install ETL Python dependencies"
 	@echo "  test                 Run unit tests"
 	@echo "  process-data         Process raw OpenLibrary dumps into CSVs"
-	@echo "  etl                  Run full OpenLibrary ingest (raw -> embed -> DB)"
+	@echo "  etl                  Run OpenLibrary ingest (ARGS=\"--max-works N [--reset|--skip-editions]\"). Defaults to continuing where you left off"
 	@echo "  rebuild-embeddings   Recompute embeddings only"
 	@echo "  author-embeddings    Build author embeddings from work embeddings"
 	@echo "  map-coords           Compute 2D PCA map coordinates (books + authors)"
@@ -35,7 +35,7 @@ test:
 	PYTHONPATH=. $(PYTEST) -q
 
 etl:
-	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_openlibrary
+	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_openlibrary $(ARGS)
 
 process-data:
 	PYTHONPATH=. $(PYTHON) data/openlibrary_data_process.py $(ARGS)

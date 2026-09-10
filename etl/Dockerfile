@@ -18,6 +18,6 @@ COPY . /app
 RUN useradd -m etluser && chown -R etluser /app
 USER etluser
 
-ENV EMBEDDINGS_MODEL=bge-m3
+ENV EMBEDDINGS_MODEL=mxbai-embed-large
 
 ENTRYPOINT ["./entrypoint.sh"]

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS works (
 CREATE TABLE IF NOT EXISTS work_embeddings (
 	work_id TEXT PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
 
-	-- bge-m3 (local Ollama build) reports embedding_length 1024
+	-- ETL auto-migrates this column when EMBEDDINGS_MODEL changes dimension.
 	embedding VECTOR(1024)
 );
 
@@ -61,4 +61,11 @@ CREATE TABLE IF NOT EXISTS map_coords (
 	x DOUBLE PRECISION NOT NULL,
 	y DOUBLE PRECISION NOT NULL,
 	PRIMARY KEY (entity, entity_id)
+);
+
+-- ETL bookkeeping: records which embedding model produced the current vectors
+-- so switching EMBEDDINGS_MODEL automatically clears stale embeddings.
+CREATE TABLE IF NOT EXISTS pipeline_meta (
+	key TEXT PRIMARY KEY,
+	value TEXT NOT NULL
 );

@@ -5,6 +5,7 @@ import csv
 import gzip
 import json
 from typing import Iterator, Dict, Any, List, Optional, Iterable
+from tqdm import tqdm
 from etl.core.canonical import CanonicalItem
 from etl.adapters.base import DatasetAdapter
 
@@ -225,18 +226,19 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 		# load authors
 		if "authors" in enabled:
 			for f in self._find_files(root, "authors"):
-				for ci in self.stream_dump("authors", f):
+				for ci in tqdm(self.stream_dump("authors", f), desc=f"indexing authors {os.path.basename(f)}", unit=" rows"):
 					if ci and ci.raw:
 						key = ci.raw.get("key") or ci.raw.get("id")
 						if key and (max_aux is None or len(authors_by_key) < max_aux):
 							authors_by_key[str(key)] = {"name": ci.title, "bio": ci.description}
 
 		# load editions (index by work link or edition key)
+		total_editions = 0
 		if "editions" in enabled:
 			for f in self._find_files(root, "editions"):
 				with _open_maybe_gzip(f) as fh:
 					reader = csv.reader(fh, delimiter="\t")
-					for row in reader:
+					for row in tqdm(reader, desc=f"indexing editions {os.path.basename(f)}", unit=" lines"):
 						obj = _parse_tsv_json_row(row)
 						if not obj: continue
 						mined = {
@@ -266,15 +268,16 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 						for wk in work_keys:
 							if not wk: continue
 							editions_by_work.setdefault(wk, [])
-							if max_aux is None or len(editions_by_work[wk]) < max_aux:
+							if max_aux is None or total_editions < max_aux:
 								editions_by_work[wk].append(mined)
+								total_editions += 1
 
 		# load deletes
 		if "deletes" in enabled:
 			for f in self._find_files(root, "deletes"):
 				with _open_maybe_gzip(f) as fh:
 					reader = csv.reader(fh, delimiter="\t")
-					for row in reader:
+					for row in tqdm(reader, desc=f"indexing deletes {os.path.basename(f)}", unit=" lines"):
 						obj = _parse_tsv_json_row(row)
 						if not obj: continue
 						tid = obj.get("id") or obj.get("key")
@@ -286,7 +289,7 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 			for f in self._find_files(root, "redirects"):
 				with _open_maybe_gzip(f) as fh:
 					reader = csv.reader(fh, delimiter="\t")
-					for row in reader:
+					for row in tqdm(reader, desc=f"indexing redirects {os.path.basename(f)}", unit=" lines"):
 						obj = _parse_tsv_json_row(row)
 						if not obj: continue
 						src = obj.get("from") or obj.get("key")
@@ -298,7 +301,7 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 		for f in self._find_files(root, "works"):
 			with _open_maybe_gzip(f) as fh:
 				reader = csv.reader(fh, delimiter="\t")
-				for row in reader:
+				for row in tqdm(reader, desc=f"streaming works {os.path.basename(f)}", unit=" lines"):
 					obj = _parse_tsv_json_row(row)
 					if not obj: continue
 					work_key = obj.get("key") or obj.get("id")

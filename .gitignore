@@ -7,4 +7,4 @@ __pycache__/
 .env
 .filestructure
 /backend/target/
-
+/frontend/public/axis-labels.json

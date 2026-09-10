@@ -42,6 +42,97 @@ class EmbeddingStore:
 			raise RuntimeError("work_embeddings.embedding column has no fixed vector dimension")
 		return int(row[0])
 
+	def _ensure_meta_table(self) -> None:
+		"""Create pipeline_meta if missing (pre-existing DBs not updated via db-init)."""
+		with self.engine.begin() as conn:
+			conn.execute(text(
+				"CREATE TABLE IF NOT EXISTS pipeline_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+			))
+
+	def get_meta(self, key: str) -> Optional[str]:
+		"""Read a key from the pipeline_meta table (or None)."""
+		self._ensure_meta_table()
+		with self.engine.connect() as conn:
+			row = conn.execute(text(
+				"SELECT value FROM pipeline_meta WHERE key = :key"
+			), {"key": key}).first()
+		return row[0] if row else None
+
+	def set_meta(self, key: str, value: str) -> None:
+		sql = text("""
+			INSERT INTO pipeline_meta (key, value) VALUES (:key, :value)
+			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+		""")
+		with self.engine.begin() as conn:
+			conn.execute(sql, {"key": key, "value": value})
+
+	def _migrate_embedding_dimension(self, target_dim: int) -> None:
+		"""Resize work_embeddings.embedding and authors.embedding to VECTOR(target_dim)."""
+		print(f"Resizing embedding columns to VECTOR({target_dim}) ...", flush=True)
+		d = int(target_dim)
+		with self.engine.begin() as conn:
+			conn.execute(text("DROP INDEX IF EXISTS idx_work_embeddings_vector"))
+			conn.execute(text("DROP INDEX IF EXISTS idx_authors_embedding"))
+			conn.execute(text(
+				f"ALTER TABLE work_embeddings ALTER COLUMN embedding TYPE VECTOR({d}) "
+				f"USING embedding::vector({d})"
+			))
+			conn.execute(text(
+				f"ALTER TABLE authors ALTER COLUMN embedding TYPE VECTOR({d}) "
+				f"USING embedding::vector({d})"
+			))
+			conn.execute(text("CREATE INDEX idx_work_embeddings_vector ON work_embeddings USING hnsw (embedding vector_cosine_ops)"))
+			conn.execute(text("CREATE INDEX idx_authors_embedding ON authors USING hnsw (embedding vector_cosine_ops)"))
+
+	def prepare_embedding_model(self, model_name: str, target_dim: int) -> None:
+		"""Make the schema match the active embedder.
+
+		- Clears stale embeddings (work_embeddings, authors, map_coords) when the model
+			changed versus the one recorded in pipeline_meta.
+		- Resizes the embedding columns afterwards when the model's dimension differs
+			(on an empty table, so the cast can never fail).
+
+		Safe to call on every ETL run; a no-op when nothing changed.
+		"""
+		stored = self.get_meta("embedding_model")
+		model_changed = stored != model_name
+		dim_changed = self.embedding_dimension() != target_dim
+		if not model_changed and not dim_changed:
+			return
+
+		if model_changed:
+			if stored is not None:
+				print(
+					f"Embedding model changed ({stored} -> {model_name}): clearing stale "
+					f"embeddings/authors/map_coords. Re-run after this to re-embed everything.",
+					flush=True,
+				)
+			else:
+				print(f"Recording embedding model '{model_name}' in pipeline_meta.", flush=True)
+		else:
+			print(f"Resizing embedding dimension {self.embedding_dimension()} -> {target_dim}; clearing existing vectors.", flush=True)
+		with self.engine.begin() as conn:
+			conn.execute(text("TRUNCATE TABLE work_embeddings, authors CASCADE"))
+			conn.execute(text("DELETE FROM map_coords"))
+
+		if dim_changed:
+			self._migrate_embedding_dimension(target_dim)
+		self.set_meta("embedding_model", model_name)
+		print("Schema is ready for the embedding model.", flush=True)
+
+	def clear_all(self) -> None:
+		"""Truncate every data table, leaving the schema in place."""
+		with self.engine.begin() as conn:
+			conn.execute(text(
+				"TRUNCATE TABLE works, work_embeddings, ratings, authors, map_coords CASCADE"
+			))
+
+	def existing_work_ids(self) -> set:
+		"""Return the set of work_ids that already have embeddings (for resume/continue)."""
+		with self.engine.connect() as conn:
+			rows = conn.execute(text("SELECT work_id FROM work_embeddings"))
+			return {r[0] for r in rows}
+
 	def upsert_work(self, item: CanonicalItem) -> None:
 		sql = text("""
 			INSERT INTO works (id, title, subtitle, description, first_sentence, subjects, genres, authors, languages, first_publish_date, series, source)

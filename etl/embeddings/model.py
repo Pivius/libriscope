@@ -7,12 +7,14 @@ import requests
 class OllamaEmbedder:
 	"""Client for Ollama's local /api/embed endpoint."""
 
-	def __init__(self, host: Optional[str] = None, model_name: Optional[str] = None, timeout: float = 120.0) -> None:
+	def __init__(self, host: Optional[str] = None, model_name: Optional[str] = None,
+			timeout: float = 120.0, num_ctx: Optional[int] = None) -> None:
 		from etl.core.config import load_env
 		load_env()
 		self.host = (host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
-		self.model_name = model_name or os.environ.get("EMBEDDINGS_MODEL", "bge-m3")
+		self.model_name = model_name or os.environ.get("EMBEDDINGS_MODEL", "mxbai-embed-large")
 		self.timeout = timeout
+		self.num_ctx = num_ctx or int(os.environ.get("EMBED_CONTEXT_LENGTH", "512") or 512)
 		self._dimension: Optional[int] = None
 
 	@property
@@ -31,7 +33,11 @@ class OllamaEmbedder:
 		all_vectors: List[List[float]] = []
 		for i in range(0, len(texts), batch_size):
 			chunk = list(texts[i:i + batch_size])
-			payload = {"model": self.model_name, "input": chunk}
+			payload = {
+				"model": self.model_name,
+				"input": chunk,
+				"options": {"num_ctx": self.num_ctx},
+			}
 			resp = requests.post(f"{self.host}/api/embed", json=payload, timeout=self.timeout)
 			resp.raise_for_status()
 			data = resp.json()
