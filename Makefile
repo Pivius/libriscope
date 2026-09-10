@@ -3,17 +3,19 @@ PIP ?= pip
 PYTEST ?= pytest
 CARGO ?= cargo
 
-.PHONY: help install test etl rebuild-embeddings author-embeddings map-coords db-up db-down db-init inspect ollama-pull ollama-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
+.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords db-up db-down db-init db-clear inspect ollama-pull ollama-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
 
 help:
 	@echo "Available targets:"
 	@echo "  install              Install ETL Python dependencies"
 	@echo "  test                 Run unit tests"
+	@echo "  process-data         Process raw OpenLibrary dumps into CSVs"
 	@echo "  etl                  Run full OpenLibrary ingest (raw -> embed -> DB)"
 	@echo "  rebuild-embeddings   Recompute embeddings only"
 	@echo "  author-embeddings    Build author embeddings from work embeddings"
 	@echo "  map-coords           Compute 2D PCA map coordinates (books + authors)"
 	@echo "  db-init              Apply infra/init.sql schema"
+	@echo "  db-clear             Truncate all data tables (keeps schema)"
 	@echo "  inspect              Inspect a gz dump (FILE=<file>)"
 	@echo "  db-up / db-down      Manage local Postgres via docker-compose"
 	@echo "  ollama-pull          Download the embedding model into Ollama"
@@ -35,6 +37,9 @@ test:
 etl:
 	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_openlibrary
 
+process-data:
+	PYTHONPATH=. $(PYTHON) data/openlibrary_data_process.py $(ARGS)
+
 rebuild-embeddings:
 	PYTHONPATH=. $(PYTHON) -m etl.jobs.rebuild_embeddings
 
@@ -46,6 +51,9 @@ map-coords:
 
 db-init:
 	psql "$(DATABASE_URL)" -f infra/init.sql
+
+db-clear:
+	psql "$(DATABASE_URL)" -c "TRUNCATE TABLE works, work_embeddings, ratings, authors, map_coords CASCADE;"
 
 inspect:
 	$(PYTHON) scripts/inspect_gz_json.py "$(PATH)" --show-keys
