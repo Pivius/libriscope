@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS works (
 CREATE TABLE IF NOT EXISTS work_embeddings (
 	work_id TEXT PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
 
-	-- ETL auto-migrates this column when EMBEDDINGS_MODEL changes dimension.
-	embedding VECTOR(1024)
+	-- ETL auto-migrates this column when EMBEDDINGS_MODEL changes dimension
+	embedding VECTOR(768)
 );
 
 CREATE TABLE IF NOT EXISTS ratings (
@@ -45,7 +45,7 @@ ON ratings (work_id);
 CREATE TABLE IF NOT EXISTS authors (
 	name TEXT PRIMARY KEY,
 	work_count INT NOT NULL,
-	embedding VECTOR(1024)
+	embedding VECTOR(768)
 );
 
 CREATE INDEX IF NOT EXISTS idx_authors_embedding

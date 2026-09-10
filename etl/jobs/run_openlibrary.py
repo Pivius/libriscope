@@ -14,7 +14,7 @@ def _env_int(name: str, default: int) -> int:
 def main() -> None:
 	parser = argparse.ArgumentParser(description="Run OpenLibrary ingest ETL end-to-end.")
 	parser.add_argument("--dir", "-d", default=os.environ.get("PROCESSED_DIR", "data/processed/openlibrary"))
-	parser.add_argument("--batch-size", type=int, default=_env_int("BATCH_SIZE", 32))
+	parser.add_argument("--batch-size", type=int, default=_env_int("BATCH_SIZE", 64))
 	parser.add_argument("--no-db", action="store_true", help="Skip writing works metadata to DB.")
 	parser.add_argument("--no-embeddings", action="store_true", help="Skip embedding generation.")
 	parser.add_argument("--max-aux", type=int, default=_env_int("MAX_AUX", 500000))

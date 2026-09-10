@@ -7,7 +7,7 @@ from etl.core.pipeline import run_pipeline
 def main() -> None:
 	parser = argparse.ArgumentParser(description="Recompute embeddings for existing works (metadata-only, no upsert).")
 	parser.add_argument("--dir", "-d", default=os.environ.get("PROCESSED_DIR", "data/processed/openlibrary"))
-	parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", "32")))
+	parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", "64")))
 	parser.add_argument("--max-aux", type=int, default=int(os.environ.get("MAX_AUX", "500000")))
 	args = parser.parse_args()
 

@@ -1,72 +1,66 @@
 import os
 from typing import List, Optional
 
-import requests
 
+class SentenceTransformerEmbedder:
+	"""In-process embedding via sentence-transformers running on local GPU/CPU.
 
-class OllamaEmbedder:
-	"""Client for Ollama's local /api/embed endpoint."""
+	The ETL encodes the *corpus* side of the search (works metadata), so no query
+	instruction prefix is applied (that only matters for queries at search time).
+	"""
 
-	def __init__(self, host: Optional[str] = None, model_name: Optional[str] = None,
-			timeout: float = 120.0, num_ctx: Optional[int] = None) -> None:
+	def __init__(self, model_name: Optional[str] = None, batch_size: int = 64) -> None:
 		from etl.core.config import load_env
 		load_env()
-		self.host = (host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
-		self.model_name = model_name or os.environ.get("EMBEDDINGS_MODEL", "mxbai-embed-large")
-		self.timeout = timeout
-		self.num_ctx = num_ctx or int(os.environ.get("EMBED_CONTEXT_LENGTH", "512") or 512)
+		self.model_name = model_name or os.environ.get("EMBEDDINGS_MODEL", "BAAI/bge-base-en-v1.5")
+		self.batch_size = batch_size or int(os.environ.get("EMBED_BATCH_SIZE", "64") or 64)
+		self.model_id = f"sentence-transformers/{self.model_name}"
+		self._model = None
 		self._dimension: Optional[int] = None
+
+	def _get_sentence_transformer(self):
+		if self._model is None:
+			from sentence_transformers import SentenceTransformer
+			self._model = SentenceTransformer(self.model_name)
+		return self._model
 
 	@property
 	def dimension(self) -> int:
 		if self._dimension is None:
-			# probe with a single token to learn the vector width
-			vec = self.encode(["probe"], batch_size=1)[0]
-			self._dimension = len(vec)
-		return self._dimension
+			model = self._get_sentence_transformer()
+			getter = getattr(model, "get_embedding_dimension", None) or model.get_sentence_embedding_dimension
+			self._dimension = getter()
+		return int(self._dimension)
 
-	def encode(self, texts: List[str], *, batch_size: int = 32, normalize: bool = True, show_progress_bar: bool = False) -> List[List[float]]:
+	def encode(self, texts: List[str], *, batch_size: int = 64, normalize: bool = True,
+			show_progress_bar: bool = False) -> List[List[float]]:
 		"""Encode a list of texts, returning a list of vectors (each a list of floats)."""
 		if not texts:
 			return []
 
-		all_vectors: List[List[float]] = []
-		for i in range(0, len(texts), batch_size):
-			chunk = list(texts[i:i + batch_size])
-			payload = {
-				"model": self.model_name,
-				"input": chunk,
-				"options": {"num_ctx": self.num_ctx},
-			}
-			resp = requests.post(f"{self.host}/api/embed", json=payload, timeout=self.timeout)
-			resp.raise_for_status()
-			data = resp.json()
-			raw_vectors = data.get("embeddings") or []
-			for vec in raw_vectors:
-				if normalize and vec:
-					norm = sum(v * v for v in vec) ** 0.5
-					if norm > 0:
-						vec = [v / norm for v in vec]
-				all_vectors.append(list(vec))
-
-		return all_vectors
+		vectors = self._get_sentence_transformer().encode(
+			texts,
+			batch_size=batch_size or self.batch_size,
+			normalize_embeddings=normalize,
+			show_progress_bar=show_progress_bar,
+			convert_to_numpy=True,
+		)
+		return [list(map(float, vec)) for vec in vectors]
 
 	def ping(self) -> bool:
-		"""Return True if Ollama is reachable and the model is available."""
+		"""Return True if the embedding model can be loaded."""
 		try:
-			resp = requests.get(f"{self.host}/api/tags", timeout=5.0)
-			resp.raise_for_status()
-			models = [m.get("name", "") for m in (resp.json().get("models") or [])]
-			return any(self.model_name in name for name in models)
+			self._get_sentence_transformer()
+			return True
 		except Exception:
 			return False
 
 
-_embedder: Optional[OllamaEmbedder] = None
+_embedder: Optional[SentenceTransformerEmbedder] = None
 
 
-def get_model() -> OllamaEmbedder:
+def get_model() -> SentenceTransformerEmbedder:
 	global _embedder
 	if _embedder is None:
-		_embedder = OllamaEmbedder()
+		_embedder = SentenceTransformerEmbedder()
 	return _embedder

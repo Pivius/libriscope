@@ -3,7 +3,7 @@ PIP ?= pip
 PYTEST ?= pytest
 CARGO ?= cargo
 
-.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords db-up db-down db-init db-clear inspect ollama-pull ollama-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
+.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
 
 help:
 	@echo "Available targets:"
@@ -18,8 +18,7 @@ help:
 	@echo "  db-clear             Truncate all data tables (keeps schema)"
 	@echo "  inspect              Inspect a gz dump (FILE=<file>)"
 	@echo "  db-up / db-down      Manage local Postgres via docker-compose"
-	@echo "  ollama-pull          Download the embedding model into Ollama"
-	@echo "  ollama-check         Verify Ollama + embedding model are reachable"
+	@echo "  model-check          Load/verify the sentence-transformers embedding model (downloads on first run)"
 	@echo "  backend-build        Build the Rust backend"
 	@echo "  backend-run          Run the Rust backend (cargo run)"
 	@echo "  backend-test         Run Rust backend tests"
@@ -64,11 +63,8 @@ db-up:
 db-down:
 	docker compose -f infra/docker-compose.yml down
 
-ollama-pull:
-	ollama pull $(EMBEDDINGS_MODEL)
-
-ollama-check:
-	PYTHONPATH=. $(PYTHON) -c "from etl.embeddings.model import get_model; ok = get_model().ping(); print('Ollama reachable and model available' if ok else 'Ollama unreachable or model missing'); exit(0 if ok else 1)"
+model-check:
+	PYTHONPATH=. $(PYTHON) -c "from etl.embeddings.model import get_model; m = get_model(); d = m.dimension; print(f'Embedding model {m.model_name} ready (dim {d})'); exit(0)"
 
 backend-build:
 	$(CARGO) build --manifest-path backend/Cargo.toml

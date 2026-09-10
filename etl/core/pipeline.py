@@ -33,8 +33,9 @@ def run_pipeline(
 	if write_embeddings:
 		from etl.embeddings.model import get_model
 		model = get_model()
+		assert store is not None
 		store.prepare_embedding_model(model.model_name, model.dimension)
-		print(f"Embedder: {model.model_name} (dim {model.dimension}, num_ctx {model.num_ctx}) via {model.host}", flush=True)
+		print(f"Embedder: {model.model_name} (dim {model.dimension}) via sentence-transformers", flush=True)
 
 	if reset_db:
 		if store is None:

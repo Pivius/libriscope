@@ -5,4 +5,4 @@ pandas
 numpy
 tqdm
 python-dotenv
-requests
+sentence-transformers

@@ -26,8 +26,8 @@ class EmbeddingStore:
 	def embedding_dimension(self) -> int:
 		"""Read the configured VECTOR(n) width from the work_embeddings table.
 
-		pgvector stores the dimension directly in the column's atttypmod
-		(e.g. vector(1024) -> atttypmod = 1024).
+			pgvector stores the dimension directly in the column's atttypmod
+			(e.g. vector(768) -> atttypmod = 768).
 		"""
 		with self.engine.connect() as conn:
 			row = conn.execute(text(

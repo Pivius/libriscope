@@ -13,22 +13,5 @@ services:
     ports:
       - "5432:5432"
 
-  etl:
-    build:
-      context: ./etl
-      dockerfile: Dockerfile
-    env_file:
-      - ./etl/.env
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/libriscope
-      - OLLAMA_HOST=http://host.docker.internal:11434
-      - EMBEDDINGS_MODEL=mxbai-embed-large
-    depends_on:
-      - db
-    volumes:
-      - ./etl:/app
-    command: []
-    restart: "no"
-
 volumes:
   db_data:
