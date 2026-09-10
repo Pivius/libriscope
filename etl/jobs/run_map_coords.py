@@ -4,6 +4,7 @@ from typing import List, Tuple
 
 import numpy as np
 from sqlalchemy import create_engine, text
+from tqdm import tqdm
 
 from etl.core.config import load_env
 
@@ -64,18 +65,18 @@ def main() -> None:
 	book_ids, author_names = [], []
 	book_vecs, author_vecs = [], []
 	with engine.connect() as conn:
-		for work_id, emb_text in conn.execute(text(
+		for work_id, emb_text in tqdm(conn.execute(text(
 			"SELECT work_id, embedding::text FROM work_embeddings"
-		)).fetchall():
+		)).fetchall(), desc="loading books"):
 			vec = _parse_vector(emb_text)
 			if not vec:
 				continue
 			book_ids.append(work_id)
 			book_vecs.append(vec)
 
-		for name, emb_text in conn.execute(text(
+		for name, emb_text in tqdm(conn.execute(text(
 			"SELECT name, embedding::text FROM authors"
-		)).fetchall():
+		)).fetchall(), desc="loading authors"):
 			vec = _parse_vector(emb_text)
 			if not vec:
 				continue
@@ -86,9 +87,10 @@ def main() -> None:
 		rows = []
 		if vecs:
 			matrix = np.array(vecs, dtype=float)
+			print(f"Running PCA on {len(vecs):,} {entity} embeddings ...", flush=True)
 			proj = _pca_2d(matrix)
 			proj = _normalize_axes(proj)
-			for eid, coord in zip(ids, proj):
+			for eid, coord in tqdm(zip(ids, proj), desc=f"computing {entity} coords", total=len(ids)):
 				rows.append({
 					"entity": entity,
 					"entity_id": eid,

@@ -1,5 +1,7 @@
 from typing import Iterable, Optional
 
+from tqdm import tqdm
+
 from etl.adapters.ol_adapter import OpenLibraryCSVAdapter
 from etl.core.text_builder import build_text
 from etl.embeddings.batch import iter_batches
@@ -41,22 +43,28 @@ def run_pipeline(
 	count = 0
 	items = adapter.collate_from_dir(processed_dir, enabled=enabled, max_aux=max_aux)
 
-	for ids, batch in iter_batches(items, batch_size):
-		vectors = None
-		if model is not None:
-			texts = [build_text(item) for item in batch]
-			vectors = model.encode(texts, batch_size=batch_size)
+	bar = tqdm(desc="ETL", unit="batch", ncols=100)
+	try:
+		for ids, batch in iter_batches(items, batch_size):
+			vectors = None
+			if model is not None:
+				texts = [build_text(item) for item in batch]
+				vectors = model.encode(texts, batch_size=batch_size)
 
-		if store is not None:
-			ids_to_vec = {}
-			if vectors is not None:
-				for id_, vec in zip(ids, vectors):
-					ids_to_vec[id_] = vec
-			if write_db:
-				store.bulk_upsert(batch, ids_to_vec)
-			elif vectors is not None:
-				for id_, vec in zip(ids, vectors):
-					store.upsert_embedding(id_, vec)
+			if store is not None:
+				ids_to_vec = {}
+				if vectors is not None:
+					for id_, vec in zip(ids, vectors):
+						ids_to_vec[id_] = vec
+				if write_db:
+					store.bulk_upsert(batch, ids_to_vec)
+				elif vectors is not None:
+					for id_, vec in zip(ids, vectors):
+						store.upsert_embedding(id_, vec)
 
-		count += len(batch)
+			count += len(batch)
+			bar.update(1)
+			bar.set_postfix_str(f"{count:,} items")
+	finally:
+		bar.close()
 	return count

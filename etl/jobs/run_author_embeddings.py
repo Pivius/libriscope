@@ -5,6 +5,7 @@ import os
 from typing import Dict, List, Set
 
 from sqlalchemy import create_engine, text
+from tqdm import tqdm
 
 from etl.core.config import load_env
 
@@ -31,7 +32,7 @@ def load_author_names(dump_path: str, needed: Set[str]) -> Dict[str, str]:
 		return names
 
 	with gzip.open(dump_path, "rt", encoding="utf-8", errors="ignore") as fh:
-		for line in fh:
+		for line in tqdm(fh, desc="scanning authors dump", unit=" lines"):
 			parts = line.split("\t", 4)
 			if len(parts) < 5:
 				continue
@@ -78,7 +79,7 @@ def main() -> None:
 			"FROM works w "
 			"JOIN work_embeddings we ON we.work_id = w.id"
 		)).fetchall()
-		for work_id, authors, emb_text in rows:
+		for work_id, authors, emb_text in tqdm(rows, desc="loading works"):
 			vec = _parse_vector(emb_text)
 			if not vec:
 				continue
@@ -93,8 +94,10 @@ def main() -> None:
 	# aggregate vectors by display name (fallback to the key when unresolved)
 	accums: Dict[str, List[List[float]]] = {}
 	resolved_works: List[tuple] = []  # (work_id, [display names], changed)
-	for work_id, keys, vec in works:
-		display = [names.get(k, k) for k in keys]
+	for work_id, keys, vec in tqdm(works, desc="aggregating authors"):
+		display = [names.get(k) or k for k in keys if k is not None]
+		display = [n for n in display if n is not None]
+		
 		resolved_works.append((work_id, display, display != keys))
 		for name in display:
 			accums.setdefault(name, []).append(vec)
