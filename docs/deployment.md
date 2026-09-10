@@ -6,13 +6,13 @@ Local installation of a Postgres instance with `pgvector` and Ollama are require
 
 - Python 3.11+
 - PostgreSQL with the `pgvector` extension (`CREATE EXTENSION vector;`)
-- [Ollama](https://ollama.com) with the `nomic-embed-text` embedding model
+- [Ollama](https://ollama.com) with the `bge-m3` embedding model
 
 ## 0. Start Ollama + pull the model
 
 ```bash
 ollama serve            # if not already running as a service
-make ollama-pull        # ollama pull nomic-embed-text
+make ollama-pull        # ollama pull bge-m3
 make ollama-check       # check reachability + model presence
 ```
 
@@ -31,7 +31,7 @@ Key evnironment variables:
 | ------------------- | ------------------------------------------------------------- | -------------------------------- |
 | `DATABASE_URL`      | `postgresql://postgres:postgres@localhost:5432/libriscope`    | connection to Postgres/pgvector  |
 | `OLLAMA_HOST`       | `http://localhost:11434`                                      | Ollama host url                  |
-| `EMBEDDINGS_MODEL`  | `nomic-embed-text`                                            | embedding model (768 dims on the installed Ollama F16 build) |
+| `EMBEDDINGS_MODEL`  | `bge-m3`                                                      | embedding model (1024 dims on the installed Ollama F16 build) |
 | `PROCESSED_DIR`     | `data/processed/openlibrary`                                  | Input TSV/CSV files directory    |
 | `BATCH_SIZE`        | `32`                                                          | Embedding per batch              |
 | `MAX_AUX`           | `500000`                                                      | Limit on the number of in-memory authors/editions index |
@@ -42,7 +42,7 @@ Key evnironment variables:
 psql "$DATABASE_URL" -f infra/init.sql
 ```
 
-`infra/init.sql` creates `works`, `work_embeddings` (VECTOR(768)), and `ratings` tables as well as HNSW and btree indexes.
+`infra/init.sql` creates `works`, `work_embeddings` (VECTOR(1024)), and `ratings` tables as well as HNSW and btree indexes.
 
 ## 3. Install ETL dependencies
 
@@ -98,9 +98,9 @@ It never queries any AI models.
 
 ## Notes
 
-- **Dimensionality of embeddings**: Our pipeline uses `nomic-embed-text` embeddings (768 dimensions on the locally installed Ollama build). The embedding dimension can be different depending on the Ollama build - confirm it via `make ollama-check` after a pull, and update VECTOR(n) in `init.sql` to reflect that.
+- **Dimensionality of embeddings**: The pipeline uses `bge-m3` embeddings (1024 dimensions on a locally installed Ollama build). The embedding dimension can be different depending on the Ollama build.
 - **Work IDs**: IDs start with `/` (`/works/OL...`) so they need to be encoded in URLs.
-- **Docker Postgres** (instead of local installation):
+- **Docker Postgres**:
 
 	```bash
 	make db-up     # runs the db service only from infra/docker-compose.yml

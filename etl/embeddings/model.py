@@ -11,7 +11,7 @@ class OllamaEmbedder:
 		from etl.core.config import load_env
 		load_env()
 		self.host = (host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
-		self.model_name = model_name or os.environ.get("EMBEDDINGS_MODEL", "nomic-embed-text")
+		self.model_name = model_name or os.environ.get("EMBEDDINGS_MODEL", "bge-m3")
 		self.timeout = timeout
 		self._dimension: Optional[int] = None
 

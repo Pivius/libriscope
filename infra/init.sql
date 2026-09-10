@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS works (
 CREATE TABLE IF NOT EXISTS work_embeddings (
 	work_id TEXT PRIMARY KEY REFERENCES works(id) ON DELETE CASCADE,
 
-	-- nomic-embed-text (local Ollama build) reports embedding_length 768
-	embedding VECTOR(768)
+	-- bge-m3 (local Ollama build) reports embedding_length 1024
+	embedding VECTOR(1024)
 );
 
 CREATE TABLE IF NOT EXISTS ratings (
@@ -45,7 +45,7 @@ ON ratings (work_id);
 CREATE TABLE IF NOT EXISTS authors (
 	name TEXT PRIMARY KEY,
 	work_count INT NOT NULL,
-	embedding VECTOR(768)
+	embedding VECTOR(1024)
 );
 
 CREATE INDEX IF NOT EXISTS idx_authors_embedding
