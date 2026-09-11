@@ -63,6 +63,22 @@ CREATE TABLE IF NOT EXISTS map_coords (
 	PRIMARY KEY (entity, entity_id)
 );
 
+CREATE TABLE IF NOT EXISTS map_grids (
+	entity TEXT NOT NULL,
+	level INT NOT NULL,
+	cx INT NOT NULL,
+	cy INT NOT NULL,
+	count INT NOT NULL,
+	x_avg DOUBLE PRECISION NOT NULL,
+	y_avg DOUBLE PRECISION NOT NULL,
+	sample_id TEXT NOT NULL,
+	sample_label TEXT NOT NULL,
+	PRIMARY KEY (entity, level, cx, cy)
+);
+
+CREATE INDEX IF NOT EXISTS idx_map_grids_cell
+ON map_grids (entity, level, cx, cy);
+
 -- ETL bookkeeping: records which embedding model produced the current vectors
 -- so switching EMBEDDINGS_MODEL automatically clears stale embeddings.
 CREATE TABLE IF NOT EXISTS pipeline_meta (

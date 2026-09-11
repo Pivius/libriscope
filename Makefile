@@ -3,7 +3,7 @@ PIP ?= pip
 PYTEST ?= pytest
 CARGO ?= cargo
 
-.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords axis-labels db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
+.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords map-grids axis-labels db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
 
 help:
 	@echo "Available targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  rebuild-embeddings   Recompute embeddings only"
 	@echo "  author-embeddings    Build author embeddings from work embeddings"
 	@echo "  map-coords           Compute 2D PCA map coordinates (books + authors)"
+	@echo "  map-grids            Rebuild map_grids LOD aggregates (ARGS=\"--levels 0..13\")"
 	@echo "  axis-labels          Regenerate frontend/public/axis-labels.json quadrant labels (ARGS=--out FILE)"
 	@echo "  db-init              Apply infra/init.sql schema"
 	@echo "  db-clear             Truncate all data tables (keeps schema)"
@@ -49,6 +50,9 @@ author-embeddings:
 map-coords:
 	$(PYTHON) -m etl.jobs.run_map_coords
 
+map-grids:
+	$(PYTHON) -m etl.jobs.run_map_grids $(ARGS)
+
 axis-labels:
 	$(PYTHON) -m etl.jobs.run_axis_labels $(ARGS)
 
@@ -56,7 +60,7 @@ db-init:
 	psql "$(DATABASE_URL)" -f infra/init.sql
 
 db-clear:
-	psql "$(DATABASE_URL)" -c "TRUNCATE TABLE works, work_embeddings, ratings, authors, map_coords CASCADE;"
+	psql "$(DATABASE_URL)" -c "TRUNCATE TABLE works, work_embeddings, ratings, authors, map_coords, map_grids CASCADE;"
 
 inspect:
 	$(PYTHON) scripts/inspect_gz_json.py "$(PATH)" --show-keys
