@@ -20,6 +20,8 @@ pub struct RecommendRequest {
 	pub work_ids: Vec<String>,
 	#[serde(default = "default_limit")]
 	pub limit: u32,
+	#[serde(default)]
+	pub genre_mode: Option<String>,
 }
 
 fn default_limit() -> u32 {

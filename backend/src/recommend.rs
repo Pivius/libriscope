@@ -27,11 +27,11 @@ fn centroid(vectors: &[Vec<f32>]) -> Vec<f32> {
 /// Parse a pgvector text literal into a `Vec<f32>`.
 fn parse_vector(text: &str) -> Vec<f32> {
 	text.trim()
-	.trim_start_matches('[')
-	.trim_end_matches(']')
-	.split(',')
-	.filter_map(|s| s.trim().parse::<f32>().ok())
-	.collect()
+		.trim_start_matches('[')
+		.trim_end_matches(']')
+		.split(',')
+		.filter_map(|s| s.trim().parse::<f32>().ok())
+		.collect()
 }
 
 /// Format a `Vec<f32>` as a pgvector text literal.
@@ -70,21 +70,78 @@ pub async fn recommend(pool: &PgPool, req: &RecommendRequest) -> Result<Vec<Reco
 	// cosine kNN
 	let limit = req.limit.min(50) as i64;
 
-	let recs = sqlx::query_as::<_, (String, Option<String>, f64)>(
-		r#"
-		SELECT w.id, w.title, 1 - (we.embedding <=> $1::vector) AS similarity
-		FROM work_embeddings we
-		JOIN works w ON w.id = we.work_id
-		WHERE NOT (we.work_id = ANY($2))
-		ORDER BY we.embedding <=> $1::vector
-		LIMIT $3
-		"#,
-	)
-		.bind(&query_vec)
-		.bind(&req.work_ids)
-		.bind(limit)
-		.fetch_all(pool)
-		.await?;
+	// optional genre filter: derive the seed set's subject/genre terms
+	let (filter_clause, seed_terms): (Option<&'static str>, Vec<String>) =
+		match req.genre_mode.as_deref() {
+			Some("same") | Some("different") => {
+				let rows = sqlx::query_as::<_, (Vec<String>, Vec<String>)>(
+					"SELECT genres, subjects FROM works WHERE id = ANY($1)",
+				)
+					.bind(&req.work_ids)
+					.fetch_all(pool)
+					.await?;
+				let mut terms: Vec<String> = Vec::new();
+				for (genres, subjects) in rows {
+					terms.extend(genres);
+					terms.extend(subjects);
+				}
+				
+				terms.sort();
+				terms.dedup();
+
+				if terms.is_empty() {
+					(None, terms)
+				} else if req.genre_mode.as_deref() == Some("same") {
+					(Some("(w.genres && $3::text[] OR w.subjects && $3::text[])"), terms)
+				} else {
+					(
+						Some("NOT (w.genres && $3::text[]) AND NOT (w.subjects && $3::text[])"),
+						terms,
+					)
+				}
+			}
+			_ => (None, Vec::new()),
+		};
+
+	let recs = match filter_clause {
+		Some(clause) => {
+			let sql = format!(
+				r#"
+					SELECT w.id, w.title, 1 - (we.embedding <=> $1::vector) AS similarity
+					FROM work_embeddings we
+					JOIN works w ON w.id = we.work_id
+					WHERE NOT (we.work_id = ANY($2))
+						AND {clause}
+					ORDER BY we.embedding <=> $1::vector
+					LIMIT $4
+				"#
+			);
+			sqlx::query_as::<_, (String, Option<String>, f64)>(&sql)
+				.bind(&query_vec)
+				.bind(&req.work_ids)
+				.bind(&seed_terms)
+				.bind(limit)
+				.fetch_all(pool)
+				.await?
+		}
+		None => {
+			sqlx::query_as::<_, (String, Option<String>, f64)>(
+				r#"
+					SELECT w.id, w.title, 1 - (we.embedding <=> $1::vector) AS similarity
+					FROM work_embeddings we
+					JOIN works w ON w.id = we.work_id
+					WHERE NOT (we.work_id = ANY($2))
+					ORDER BY we.embedding <=> $1::vector
+					LIMIT $3
+				"#,
+			)
+				.bind(&query_vec)
+				.bind(&req.work_ids)
+				.bind(limit)
+				.fetch_all(pool)
+				.await?
+		}
+	};
 
 	let recommendations = recs
 		.into_iter()
@@ -128,11 +185,11 @@ pub async fn recommend_authors(
 
 	let recs = sqlx::query_as::<_, (String, f64)>(
 		r#"
-		SELECT a.name, 1 - (a.embedding <=> $1::vector) AS similarity
-		FROM authors a
-		WHERE NOT (a.name = ANY($2))
-		ORDER BY a.embedding <=> $1::vector
-		LIMIT $3
+			SELECT a.name, 1 - (a.embedding <=> $1::vector) AS similarity
+			FROM authors a
+			WHERE NOT (a.name = ANY($2))
+			ORDER BY a.embedding <=> $1::vector
+			LIMIT $3
 		"#,
 	)
 		.bind(&query_vec)

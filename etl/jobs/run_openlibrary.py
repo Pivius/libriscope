@@ -15,6 +15,10 @@ def main() -> None:
 	parser = argparse.ArgumentParser(description="Run OpenLibrary ingest ETL end-to-end.")
 	parser.add_argument("--dir", "-d", default=os.environ.get("PROCESSED_DIR", "data/processed/openlibrary"))
 	parser.add_argument("--batch-size", type=int, default=_env_int("BATCH_SIZE", 64))
+	parser.add_argument("--embed-batch-size", type=int, default=None,
+		help="GPU encode chunk size (default EMBED_BATCH_SIZE=192). This is the throughput knob.")
+	parser.add_argument("--max-seq-length", type=int, default=None,
+		help="Max tokens per text for the embedder (default 512). Lowering speeds up long-tail batches.")
 	parser.add_argument("--no-db", action="store_true", help="Skip writing works metadata to DB.")
 	parser.add_argument("--no-embeddings", action="store_true", help="Skip embedding generation.")
 	parser.add_argument("--max-aux", type=int, default=_env_int("MAX_AUX", 500000))
@@ -45,6 +49,8 @@ def main() -> None:
 		max_works=max_works,
 		skip_existing=not args.no_skip,
 		reset_db=args.reset,
+		embed_batch_size=args.embed_batch_size,
+		max_seq_length=args.max_seq_length,
 	)
 	print(f"Processed {count} items")
 

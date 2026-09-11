@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import MapCanvas, { type MapItem } from "@/components/MapCanvas";
 import Toolbar from "@/components/Toolbar";
+import Shelf from "@/components/Shelf";
 import {
 	fetchMapAuthors,
 	fetchMapBooks,
@@ -65,6 +66,10 @@ export default function Home() {
 	const [selected, setSelected] = useState<MapItem | null>(null);
 	const [neighbors, setNeighbors] = useState<MapItem[]>([]);
 	const [focusRequest, setFocusRequest] = useState<{ item: MapItem; nonce: number } | null>(null);
+	const [shelf, setShelf] = useState<MapItem[]>([]);
+	const [genreMode, setGenreMode] = useState<"same" | "different" | null>(null);
+	const [shelfResults, setShelfResults] = useState<Recommendation[]>([]);
+	const [shelfLoading, setShelfLoading] = useState(false);
 
 	const changeMode = (next: "books" | "authors") => {
 		setMode(next);
@@ -72,11 +77,27 @@ export default function Home() {
 		setSelected(null);
 		setHovered(null);
 		setNeighbors([]);
+		setShelf([]);
+		setShelfResults([]);
+		setGenreMode(null);
 	};
 
 	const resolveBase = (item: MapItem): MapItem => items.find((it) => it.key === item.key) ?? item;
 
-	const handleSelect = (item: MapItem | null) => {
+	const toggleShelf = (item: MapItem) => {
+		const base = resolveBase(item);
+		setShelf((prev) =>
+			prev.some((it) => it.key === base.key)
+				? prev.filter((it) => it.key !== base.key)
+				: [...prev, base],
+		);
+	};
+
+	const handleSelect = (item: MapItem | null, shiftKey?: boolean) => {
+		if (shiftKey && mode === "books" && item) {
+			toggleShelf(item);
+			return;
+		}
 		if (item) {
 			setSelected(resolveBase(item));
 		} else {
@@ -87,6 +108,29 @@ export default function Home() {
 
 	const handleSearchSelect = (item: MapItem) => {
 		const base = resolveBase(item);
+		setSelected(base);
+		setFocusRequest((prev) => ({ item: base, nonce: (prev?.nonce ?? 0) + 1 }));
+	};
+
+	const handleRecommend = async () => {
+		if (shelf.length === 0) return;
+		setShelfLoading(true);
+		try {
+			const res = await recommendBooks(
+				shelf.map((it) => it.key),
+				30,
+				genreMode,
+			);
+			setShelfResults(res.recommendations);
+		} catch (err) {
+			console.error("failed to recommend from shelf", err);
+		} finally {
+			setShelfLoading(false);
+		}
+	};
+
+	const handleSelectResult = (workId: string, label: string) => {
+		const base = items.find((it) => it.key === workId) ?? { key: workId, label, x: 0, y: 0 };
 		setSelected(base);
 		setFocusRequest((prev) => ({ item: base, nonce: (prev?.nonce ?? 0) + 1 }));
 	};
@@ -172,6 +216,22 @@ export default function Home() {
 			onSelect={handleSelect}
 			focusRequest={focusRequest}
 		/>
+		{mode === "books" ? (
+			<Shelf
+				shelf={shelf}
+				genreMode={genreMode}
+				results={shelfResults}
+				loading={shelfLoading}
+				onGenreMode={setGenreMode}
+				onRecommend={handleRecommend}
+				onRemove={(key) => setShelf((prev) => prev.filter((it) => it.key !== key))}
+				onClear={() => {
+					setShelf([]);
+					setShelfResults([]);
+				}}
+				onSelectResult={handleSelectResult}
+			/>
+		) : null}
 		</div>
 	);
 }

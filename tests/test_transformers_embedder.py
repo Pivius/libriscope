@@ -7,8 +7,15 @@ from etl.embeddings.model import SentenceTransformerEmbedder, get_model
 class _FakeST:
 	"""Minimal stand-in for sentence_transformers.SentenceTransformer."""
 
-	def __init__(self, model_name):
+	def __init__(self, model_name, **kwargs):
 		self._name = model_name
+		self.max_seq_length = 512
+
+	def to(self, device):
+		return self
+
+	def eval(self):
+		return self
 
 	def encode(self, texts, *, batch_size, normalize_embeddings, show_progress_bar, convert_to_numpy):
 		out = np.array([[float(i + 1), float(i + 2)] for i in range(len(texts))])
@@ -24,8 +31,8 @@ class _FakeST:
 class _RecordingST(_FakeST):
 	"""Fake that records encode() calls like the real SentenceTransformer."""
 
-	def __init__(self, model_name, calls):
-		super().__init__(model_name)
+	def __init__(self, model_name, calls, **kwargs):
+		super().__init__(model_name, **kwargs)
 		self._calls = calls
 
 	def encode(self, texts, **kwargs):
@@ -36,8 +43,8 @@ class _RecordingST(_FakeST):
 def test_encode_uses_sentence_transformer(monkeypatch):
 	calls = []
 
-	def make(model_name):
-		return _RecordingST(model_name, calls)
+	def make(model_name, **kwargs):
+		return _RecordingST(model_name, calls, **kwargs)
 
 	monkeypatch.setattr("sentence_transformers.SentenceTransformer", make)
 
@@ -57,25 +64,25 @@ def test_encode_uses_sentence_transformer(monkeypatch):
 
 
 def test_empty_input_returns_empty(monkeypatch):
-	monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name: _FakeST(name))
+	monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name, **kwargs: _FakeST(name, **kwargs))
 	emb = SentenceTransformerEmbedder(model_name="x")
 	assert emb.encode([]) == []
 
 
 def test_dimension_from_model(monkeypatch):
-	monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name: _FakeST(name))
+	monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name, **kwargs: _FakeST(name, **kwargs))
 	emb = SentenceTransformerEmbedder(model_name="x")
 	assert emb.dimension == 2
 
 
 def test_ping_true_when_model_loads(monkeypatch):
-	monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name: _FakeST(name))
+	monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name, **kwargs: _FakeST(name, **kwargs))
 	emb = SentenceTransformerEmbedder(model_name="x")
 	assert emb.ping() is True
 
 
 def test_ping_false_when_model_load_fails(monkeypatch):
-	def boom(name):
+	def boom(name, **kwargs):
 		raise RuntimeError("no model")
 
 	monkeypatch.setattr("sentence_transformers.SentenceTransformer", boom)

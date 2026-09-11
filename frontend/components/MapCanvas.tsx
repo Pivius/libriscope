@@ -16,6 +16,13 @@ export interface MapItem {
 	neighbor?: boolean;
 }
 
+type Quadrant = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+interface AxisLabels {
+	books: Record<Quadrant, string[]>;
+	authors: Record<Quadrant, string[]>;
+}
+
 interface MapCanvasProps {
 	items: MapItem[];
 	neighbors: MapItem[];
@@ -23,7 +30,7 @@ interface MapCanvasProps {
 	hovered: MapItem | null;
 	selected: MapItem | null;
 	onHover: (item: MapItem | null) => void;
-	onSelect: (item: MapItem | null) => void;
+	onSelect: (item: MapItem | null, shiftKey?: boolean) => void;
 	focusRequest: { item: MapItem; nonce: number } | null;
 }
 
@@ -88,8 +95,9 @@ interface RenderState {
 	mode: "books" | "authors";
 	hovered: MapItem | null;
 	selected: MapItem | null;
+	axisLabels: AxisLabels | null;
 	onHover: (item: MapItem | null) => void;
-	onSelect: (item: MapItem | null) => void;
+	onSelect: (item: MapItem | null, shiftKey?: boolean) => void;
 }
 
 export default function MapCanvas({
@@ -108,6 +116,7 @@ export default function MapCanvas({
 	const zoomRef = useRef<ZoomBehavior<HTMLCanvasElement, unknown> | null>(null);
 	const screenRef = useRef<{ item: MapItem; sx: number; sy: number }[]>([]);
 	const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
+	const [axisLabels, setAxisLabels] = useState<AxisLabels | null>(null);
 	
 	// latest props accessible from stable handlers
 	const stateRef = useRef<RenderState>({
@@ -116,12 +125,20 @@ export default function MapCanvas({
 		mode,
 		hovered,
 		selected,
+		axisLabels,
 		onHover,
 		onSelect,
 	});
 	useEffect(() => {
-		stateRef.current = { items, neighbors, mode, hovered, selected, onHover, onSelect };
-	}, [items, neighbors, mode, hovered, selected, onHover, onSelect]);
+		stateRef.current = { items, neighbors, mode, hovered, selected, axisLabels, onHover, onSelect };
+	}, [items, neighbors, mode, hovered, selected, axisLabels, onHover, onSelect]);
+
+	useEffect(() => {
+		fetch("/axis-labels.json")
+			.then((res) => res.json())
+			.then((data: AxisLabels) => setAxisLabels(data))
+			.catch(() => {});
+	}, []);
 	
 	const draw = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -131,7 +148,7 @@ export default function MapCanvas({
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
 		
-		const { items: nodes, neighbors: nbrs, mode: m, hovered: hov, selected: sel } =
+		const { items: nodes, neighbors: nbrs, mode: m, hovered: hov, selected: sel, axisLabels: axl } =
 		stateRef.current;
 		
 		const dpr = window.devicePixelRatio || 1;
@@ -249,14 +266,24 @@ export default function MapCanvas({
 			}
 		}
 
-		// base dots (faded while a neighborhood is shown)
+		// base dots: ranked by proximity to the selection (when one is active)
 		for (const { item, sx, sy } of screen) {
 			const isSel = sel?.key === item.key;
 			if (isSel) continue;
 			const isHov = hov?.key === item.key;
-			ctx.globalAlpha = hasNbr ? 0.22 : 1;
+
+			let alpha = 1;
+			let radius = isHov ? 3.5 : DOT_RADIUS;
+			if (sel) {
+				const d = Math.hypot(item.x - sel.x, item.y - sel.y);
+				const sim = Math.exp(-(d * d) / 0.72);
+				alpha = isHov ? 1 : 0.10 + 0.90 * sim;
+				radius = isHov ? 3.5 : DOT_RADIUS * (0.55 + 0.45 * sim);
+			}
+
+			ctx.globalAlpha = alpha;
 			ctx.beginPath();
-			ctx.arc(sx, sy, isHov ? 3.5 : DOT_RADIUS, 0, Math.PI * 2);
+			ctx.arc(sx, sy, radius, 0, Math.PI * 2);
 			ctx.fillStyle = isHov ? INK : colorFor(item.x, item.y);
 			ctx.fill();
 			if (!isHov) {
@@ -378,6 +405,34 @@ export default function MapCanvas({
 			h - 14,
 		);
 		setLetterSpacing(ctx, "0em");
+
+		// quadrant genre labels (auto-generated, world-anchored)
+		if (axl) {
+			const labels = axl[m];
+			const anchors: [Quadrant, number, number, CanvasTextAlign][] = [
+				["top-left", -0.7, -0.7, "left"],
+				["top-right", 0.7, -0.7, "right"],
+				["bottom-left", -0.7, 0.7, "left"],
+				["bottom-right", 0.7, 0.7, "right"],
+			];
+			ctx.fillStyle = INK_SOFT;
+			ctx.font = META_FONT;
+			ctx.textBaseline = "alphabetic";
+			setLetterSpacing(ctx, "0.12em");
+			for (const [q, wx, wy, align] of anchors) {
+				const terms = labels?.[q] ?? [];
+				if (terms.length === 0) continue;
+				const [sx, sy] = toScreen(wx, wy);
+				const text = terms
+					.slice(0, 2)
+					.map((t) => t.charAt(0).toUpperCase() + t.slice(1))
+					.join(" · ");
+				ctx.textAlign = align;
+				ctx.fillText(text, sx + (align === "right" ? -8 : 8), sy + (wy < 0 ? 16 : -8));
+			}
+			ctx.textAlign = "start";
+			setLetterSpacing(ctx, "0em");
+		}
 	}, []);
 
 	useEffect(() => {
@@ -445,8 +500,6 @@ export default function MapCanvas({
 		const canvas = canvasRef.current;
 		if (!canvas) return;
 		
-		let down: [number, number] | null = null;
-		
 		const hitTest = (px: number, py: number): MapItem | null => {
 			let best: MapItem | null = null;
 			let bestD = Infinity;
@@ -470,23 +523,15 @@ export default function MapCanvas({
 			setTooltip({ x: e.clientX, y: e.clientY });
 		};
 		
-		const onDown = (e: MouseEvent) => {
-			down = [e.clientX, e.clientY];
-		};
-		
-		const onUp = (e: MouseEvent) => {
-			if (!down) return;
-
-			const dx = e.clientX - down[0];
-			const dy = e.clientY - down[1];
-			down = null;
-
-			if (dx * dx + dy * dy > 25) return; // was a drag
-
+		const onClick = (e: MouseEvent) => {
 			const rect = canvas.getBoundingClientRect();
 			const px = e.clientX - rect.left;
 			const py = e.clientY - rect.top;
-			stateRef.current.onSelect(hitTest(px, py));
+			stateRef.current.onSelect(hitTest(px, py), e.shiftKey);
+		};
+		
+		const onContextMenu = (e: MouseEvent) => {
+			e.preventDefault();
 		};
 		
 		const onLeave = () => {
@@ -495,13 +540,13 @@ export default function MapCanvas({
 		};
 		
 		canvas.addEventListener("mousemove", onMove);
-		canvas.addEventListener("mousedown", onDown);
-		canvas.addEventListener("mouseup", onUp);
+		canvas.addEventListener("click", onClick);
+		canvas.addEventListener("contextmenu", onContextMenu);
 		canvas.addEventListener("mouseleave", onLeave);
 		return () => {
 			canvas.removeEventListener("mousemove", onMove);
-			canvas.removeEventListener("mousedown", onDown);
-			canvas.removeEventListener("mouseup", onUp);
+			canvas.removeEventListener("click", onClick);
+			canvas.removeEventListener("contextmenu", onContextMenu);
 			canvas.removeEventListener("mouseleave", onLeave);
 		};
 	}, []);

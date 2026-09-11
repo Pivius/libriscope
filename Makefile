@@ -3,7 +3,7 @@ PIP ?= pip
 PYTEST ?= pytest
 CARGO ?= cargo
 
-.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
+.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords axis-labels db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
 
 help:
 	@echo "Available targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  rebuild-embeddings   Recompute embeddings only"
 	@echo "  author-embeddings    Build author embeddings from work embeddings"
 	@echo "  map-coords           Compute 2D PCA map coordinates (books + authors)"
+	@echo "  axis-labels          Regenerate frontend/public/axis-labels.json quadrant labels (ARGS=--out FILE)"
 	@echo "  db-init              Apply infra/init.sql schema"
 	@echo "  db-clear             Truncate all data tables (keeps schema)"
 	@echo "  inspect              Inspect a gz dump (FILE=<file>)"
@@ -31,22 +32,25 @@ install:
 	$(PIP) install -r etl/requirements.txt
 
 test:
-	PYTHONPATH=. $(PYTEST) -q
+	$(PYTEST) -q
 
 etl:
-	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_openlibrary $(ARGS)
+	$(PYTHON) -m etl.jobs.run_openlibrary $(ARGS)
 
 process-data:
-	PYTHONPATH=. $(PYTHON) data/openlibrary_data_process.py $(ARGS)
+	$(PYTHON) data/openlibrary_data_process.py $(ARGS)
 
 rebuild-embeddings:
-	PYTHONPATH=. $(PYTHON) -m etl.jobs.rebuild_embeddings
+	$(PYTHON) -m etl.jobs.rebuild_embeddings
 
 author-embeddings:
-	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_author_embeddings
+	$(PYTHON) -m etl.jobs.run_author_embeddings
 
 map-coords:
-	PYTHONPATH=. $(PYTHON) -m etl.jobs.run_map_coords
+	$(PYTHON) -m etl.jobs.run_map_coords
+
+axis-labels:
+	$(PYTHON) -m etl.jobs.run_axis_labels $(ARGS)
 
 db-init:
 	psql "$(DATABASE_URL)" -f infra/init.sql
@@ -64,7 +68,7 @@ db-down:
 	docker compose -f infra/docker-compose.yml down
 
 model-check:
-	PYTHONPATH=. $(PYTHON) -c "from etl.embeddings.model import get_model; m = get_model(); d = m.dimension; print(f'Embedding model {m.model_name} ready (dim {d})'); exit(0)"
+	$(PYTHON) -c "from etl.embeddings.model import get_model; m = get_model(); print(f'Embedding model {m.model_name} ready (dim {m.dimension})')"
 
 backend-build:
 	$(CARGO) build --manifest-path backend/Cargo.toml

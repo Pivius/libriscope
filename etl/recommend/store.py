@@ -48,8 +48,8 @@ class SimilarityStore:
 	) -> List[Tuple[str, float]]:
 		"""Return ranked [(work_id, cosine_similarity)] similar to the input set.
 
-		Builds the centroid of the input works' embeddings and runs a cosine
-		kNN query, excluding the inputs themselves.
+			Builds the centroid of the input works' embeddings and runs a cosine
+			kNN query, excluding the inputs themselves.
 		"""
 		vectors = self.get_vectors(work_ids)
 		if not vectors:

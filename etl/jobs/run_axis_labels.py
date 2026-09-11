@@ -10,7 +10,6 @@ from etl.core.config import load_env
 
 QUADRANTS = ("top-left", "top-right", "bottom-left", "bottom-right")
 
-
 def quadrant_of(x: float, y: float) -> str:
 	"""Map world coords (x,y in [-1,1], +y down on screen) to a screen quadrant."""
 	if x < 0:
@@ -41,17 +40,22 @@ def top_terms(
 		counter = per_quadrant.get(q, Counter())
 		n_q = sum(counter.values()) or 1
 		scored = []
+
 		for term, cq in counter.items():
+
 			ct = total[term]
 			if ct < min_total or cq < min_quadrant:
 				continue
+
 			p_term = ct / n_total
 			lift = (cq / n_q) / p_term
+
 			# blend lift with raw prevalence so a common, dominant term still wins
 			score = lift * (cq ** 0.5)
 			scored.append((score, term))
 		scored.sort(reverse=True)
 		chosen = [term for _, term in scored[:top_k]]
+
 		# fallback: any terms at all, by count
 		if not chosen:
 			chosen = [term for term, _ in counter.most_common(top_k)]
@@ -78,7 +82,7 @@ def main() -> None:
 
 	engine = create_engine(url)
 
-	# ---- books ----
+	# books
 	with engine.connect() as conn:
 		book_coords = {
 			r[0]: (float(r[1]), float(r[2]))
@@ -101,7 +105,7 @@ def main() -> None:
 				book_q[q][t] += 1
 				book_total[t] += 1
 
-	# ---- authors ----
+	# authors
 	with engine.connect() as conn:
 		author_coords = {
 			r[0]: (float(r[1]), float(r[2]))
@@ -109,7 +113,7 @@ def main() -> None:
 				"SELECT entity_id, x, y FROM map_coords WHERE entity = 'author'"
 			)).fetchall()
 		}
-		# map each author -> the subjects/genres of their works (via works.authors array)
+		# map each author -> the subjects/genres of their works
 		author_q: Dict[str, Counter] = {q: Counter() for q in QUADRANTS}
 		author_total: Counter = Counter()
 

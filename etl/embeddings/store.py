@@ -1,18 +1,19 @@
 import os
 from typing import Any, Iterable, List, Optional, Tuple
 
+import numpy as np
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from etl.core.canonical import CanonicalItem
 from etl.core.config import load_env
 
-
 class EmbeddingStore:
 	"""Write CanonicalItems + embeddings into Postgres (pgvector)."""
 
 	def __init__(self, database_url: Optional[str] = None) -> None:
 		load_env()
+
 		url = database_url or os.environ.get("DATABASE_URL")
 		if not url:
 			raise RuntimeError("DATABASE_URL is not set")
@@ -21,13 +22,14 @@ class EmbeddingStore:
 		self.engine: Engine = create_engine(url)
 
 	def _embedding_literal(self, vector) -> str:
+		if isinstance(vector, np.ndarray):
+			return str(vector.tolist())
 		return "[" + ",".join(str(float(x)) for x in vector) + "]"
 
 	def embedding_dimension(self) -> int:
 		"""Read the configured VECTOR(n) width from the work_embeddings table.
 
 			pgvector stores the dimension directly in the column's atttypmod
-			(e.g. vector(768) -> atttypmod = 768).
 		"""
 		with self.engine.connect() as conn:
 			row = conn.execute(text(
@@ -43,14 +45,14 @@ class EmbeddingStore:
 		return int(row[0])
 
 	def _ensure_meta_table(self) -> None:
-		"""Create pipeline_meta if missing (pre-existing DBs not updated via db-init)."""
+		"""Create pipeline_meta if missing, pre-existing DBs not updated via db-init. """
 		with self.engine.begin() as conn:
 			conn.execute(text(
 				"CREATE TABLE IF NOT EXISTS pipeline_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
 			))
 
 	def get_meta(self, key: str) -> Optional[str]:
-		"""Read a key from the pipeline_meta table (or None)."""
+		"""Read a key from the pipeline_meta table or None."""
 		self._ensure_meta_table()
 		with self.engine.connect() as conn:
 			row = conn.execute(text(
@@ -67,7 +69,11 @@ class EmbeddingStore:
 			conn.execute(sql, {"key": key, "value": value})
 
 	def _migrate_embedding_dimension(self, target_dim: int) -> None:
-		"""Resize work_embeddings.embedding and authors.embedding to VECTOR(target_dim)."""
+		"""Resize work_embeddings.embedding and authors.embedding to VECTOR(target_dim).
+
+			The HNSW index is intentionally NOT rebuilt here: it gets recreated once
+			after the bulk load finishes.
+		"""
 		print(f"Resizing embedding columns to VECTOR({target_dim}) ...", flush=True)
 		d = int(target_dim)
 		with self.engine.begin() as conn:
@@ -81,22 +87,35 @@ class EmbeddingStore:
 				f"ALTER TABLE authors ALTER COLUMN embedding TYPE VECTOR({d}) "
 				f"USING embedding::vector({d})"
 			))
-			conn.execute(text("CREATE INDEX idx_work_embeddings_vector ON work_embeddings USING hnsw (embedding vector_cosine_ops)"))
 			conn.execute(text("CREATE INDEX idx_authors_embedding ON authors USING hnsw (embedding vector_cosine_ops)"))
+
+	def drop_embedding_index(self) -> None:
+		"""Drop the work_embeddings HNSW index so bulk inserts bypass index maintenance."""
+		with self.engine.begin() as conn:
+			conn.execute(text("DROP INDEX IF EXISTS idx_work_embeddings_vector"))
+
+	def create_embedding_index(self) -> None:
+		"""Recreate the work_embeddings HNSW cosine index (after the bulk load)."""
+		with self.engine.begin() as conn:
+			conn.execute(text(
+				"CREATE INDEX IF NOT EXISTS idx_work_embeddings_vector "
+				"ON work_embeddings USING hnsw (embedding vector_cosine_ops)"
+			))
 
 	def prepare_embedding_model(self, model_name: str, target_dim: int) -> None:
 		"""Make the schema match the active embedder.
 
-		- Clears stale embeddings (work_embeddings, authors, map_coords) when the model
-			changed versus the one recorded in pipeline_meta.
-		- Resizes the embedding columns afterwards when the model's dimension differs
-			(on an empty table, so the cast can never fail).
+			- Clears stale embeddings when the model
+				changed versus the one recorded in pipeline_meta.
+			- Resizes the embedding columns afterwards when the model's dimension differs 
+				on an empty table, so the cast can never fail.
 
-		Safe to call on every ETL run; a no-op when nothing changed.
+			Safe to call on every ETL run, a no-op when nothing changed.
 		"""
 		stored = self.get_meta("embedding_model")
 		model_changed = stored != model_name
 		dim_changed = self.embedding_dimension() != target_dim
+
 		if not model_changed and not dim_changed:
 			return
 
@@ -117,6 +136,7 @@ class EmbeddingStore:
 
 		if dim_changed:
 			self._migrate_embedding_dimension(target_dim)
+
 		self.set_meta("embedding_model", model_name)
 		print("Schema is ready for the embedding model.", flush=True)
 
@@ -128,7 +148,7 @@ class EmbeddingStore:
 			))
 
 	def existing_work_ids(self) -> set:
-		"""Return the set of work_ids that already have embeddings (for resume/continue)."""
+		"""Return the set of work_ids that already have embeddings."""
 		with self.engine.connect() as conn:
 			rows = conn.execute(text("SELECT work_id FROM work_embeddings"))
 			return {r[0] for r in rows}
@@ -174,7 +194,7 @@ class EmbeddingStore:
 		with self.engine.begin() as conn:
 			conn.execute(sql, {"work_id": work_id, "embedding": self._embedding_literal(vector)})
 
-	def bulk_upsert(self, items: Iterable[CanonicalItem], ids_to_vectors, batch_size: int = 500) -> None:
+	def bulk_upsert(self, items: Iterable[CanonicalItem], ids_to_vectors, batch_size: int = 2000) -> None:
 		"""Write many items + their (id -> vector) pairs efficiently."""
 		work_sql = text("""
 			INSERT INTO works (id, title, subtitle, description, first_sentence, subjects, genres, authors, languages, first_publish_date, series, source)

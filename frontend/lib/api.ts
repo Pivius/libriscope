@@ -52,8 +52,13 @@ export function fetchAuthor(name: string): Promise<AuthorDetail> {
 export function recommendBooks(
 	workIds: string[],
 	limit = 30,
+	genreMode: "same" | "different" | null = null,
 ): Promise<RecommendResponse> {
-	return postJson<RecommendResponse>("/recommend", { work_ids: workIds, limit });
+	return postJson<RecommendResponse>("/recommend", {
+		work_ids: workIds,
+		limit,
+		genre_mode: genreMode,
+	});
 }
 
 export function recommendAuthors(
