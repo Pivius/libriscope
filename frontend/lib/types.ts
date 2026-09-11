@@ -18,11 +18,21 @@ export interface MapNode {
 	y: number;
 }
 
+export interface MapBooksResponse {
+	nodes: MapNode[];
+	total: number;
+}
+
 export interface AuthorNode {
 	name: string;
 	work_count: number;
 	x: number;
 	y: number;
+}
+
+export interface MapAuthorsResponse {
+	nodes: AuthorNode[];
+	total: number;
 }
 
 export interface AuthorDetail {

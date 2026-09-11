@@ -29,6 +29,7 @@ interface MapCanvasProps {
 	mode: "books" | "authors";
 	hovered: MapItem | null;
 	selected: MapItem | null;
+	total?: number;
 	onHover: (item: MapItem | null) => void;
 	onSelect: (item: MapItem | null, shiftKey?: boolean) => void;
 	focusRequest: { item: MapItem; nonce: number } | null;
@@ -95,6 +96,7 @@ interface RenderState {
 	mode: "books" | "authors";
 	hovered: MapItem | null;
 	selected: MapItem | null;
+	total: number;
 	axisLabels: AxisLabels | null;
 	onHover: (item: MapItem | null) => void;
 	onSelect: (item: MapItem | null, shiftKey?: boolean) => void;
@@ -106,6 +108,7 @@ export default function MapCanvas({
 	mode,
 	hovered,
 	selected,
+	total,
 	onHover,
 	onSelect,
 	focusRequest,
@@ -125,13 +128,14 @@ export default function MapCanvas({
 		mode,
 		hovered,
 		selected,
+		total: total ?? items.length,
 		axisLabels,
 		onHover,
 		onSelect,
 	});
 	useEffect(() => {
-		stateRef.current = { items, neighbors, mode, hovered, selected, axisLabels, onHover, onSelect };
-	}, [items, neighbors, mode, hovered, selected, axisLabels, onHover, onSelect]);
+		stateRef.current = { items, neighbors, mode, hovered, selected, total: total ?? items.length, axisLabels, onHover, onSelect };
+	}, [items, neighbors, mode, hovered, selected, total, axisLabels, onHover, onSelect]);
 
 	useEffect(() => {
 		fetch("/axis-labels.json")
@@ -148,7 +152,7 @@ export default function MapCanvas({
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
 		
-		const { items: nodes, neighbors: nbrs, mode: m, hovered: hov, selected: sel, axisLabels: axl } =
+		const { items: nodes, neighbors: nbrs, mode: m, hovered: hov, selected: sel, axisLabels: axl, total: nodeTotal } =
 		stateRef.current;
 		
 		const dpr = window.devicePixelRatio || 1;
@@ -394,13 +398,13 @@ export default function MapCanvas({
 		ctx.font = META_FONT;
 		setLetterSpacing(ctx, "0.22em");
 		ctx.fillText(
-			`${nodes.length} ${m.toUpperCase()}`,
+			`${nodeTotal} ${m.toUpperCase()}`,
 			16,
 			h - 28,
 		);
 		setLetterSpacing(ctx, "0.08em");
 		ctx.fillText(
-			`${jaUnit} ${nodes.length}`,
+			`${jaUnit} ${nodeTotal}`,
 			16,
 			h - 14,
 		);

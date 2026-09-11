@@ -53,12 +53,29 @@ pub struct MapNode {
 	pub y: f64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MapBooksResponse {
+	pub nodes: Vec<MapNode>,
+	pub total: i64,
+}
+
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct AuthorNode {
 	pub name: String,
 	pub work_count: i32,
 	pub x: f64,
 	pub y: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MapAuthorsResponse {
+	pub nodes: Vec<AuthorNode>,
+	pub total: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MapQuery {
+	pub limit: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

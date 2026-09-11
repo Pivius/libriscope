@@ -185,7 +185,7 @@ mod tests {
 		let Some(app) = app_for_test().await else { return };
 		let Some(pool) = test_pool().await else { return };
 
-		// /map/books returns nodes with id + label + coordinates
+		// /map/books returns { nodes, total } with id + label + coordinates
 		let res = app
 			.clone()
 			.oneshot(
@@ -197,11 +197,16 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(res.status(), StatusCode::OK);
+		assert!(
+			res.headers().get("x-total-count").is_some(),
+			"X-Total-Count header present"
+		);
 		let body = body_string(res.into_body()).await;
+		assert!(body.contains("\"nodes\""));
 		assert!(body.contains("\"label\""));
 		assert!(body.contains("\"x\""));
 
-		// /map/authors returns nodes with name + coordinates
+		// /map/authors returns { nodes, total } with name + coordinates
 		let res = app
 			.clone()
 			.oneshot(
@@ -213,7 +218,12 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(res.status(), StatusCode::OK);
+		assert!(
+			res.headers().get("x-total-count").is_some(),
+			"X-Total-Count header present"
+		);
 		let body = body_string(res.into_body()).await;
+		assert!(body.contains("\"nodes\""));
 		assert!(body.contains("\"name\""));
 		assert!(body.contains("\"work_count\""));
 
@@ -268,5 +278,64 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(res.status(), StatusCode::NOT_FOUND);
+	}
+
+	#[tokio::test]
+	async fn map_books_ordered_and_limited() {
+		let Some(app) = app_for_test().await else { return };
+
+		// ordering: nodes must be sorted by entity_id ascending
+		let res = app
+			.clone()
+			.oneshot(
+				Request::builder()
+					.uri("/map/books")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		let nodes = json["nodes"].as_array().unwrap();
+		let total = json["total"].as_i64().unwrap();
+		assert_eq!(nodes.len() as i64, total.min(5000), "returns up to 5000 nodes");
+		let ids: Vec<&str> = nodes.iter().map(|n| n["id"].as_str().unwrap()).collect();
+		let mut sorted = ids.clone();
+		sorted.sort();
+		assert_eq!(ids, sorted, "/map/books nodes must be ordered by entity_id");
+
+		// ?limit bounds the number of returned nodes
+		let res = app
+			.clone()
+			.oneshot(
+				Request::builder()
+					.uri("/map/books?limit=3")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		assert_eq!(json["nodes"].as_array().unwrap().len(), 3.min(total as usize));
+
+		// an oversized limit is clamped to the hard max
+		let res = app
+			.clone()
+			.oneshot(
+				Request::builder()
+					.uri("/map/books?limit=100000")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		assert_eq!(json["nodes"].as_array().unwrap().len(), 5000.min(total as usize));
 	}
 }

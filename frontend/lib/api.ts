@@ -1,13 +1,14 @@
 import type {
 	AuthorDetail,
-	AuthorNode,
 	AuthorRecommendResponse,
 	Book,
-	MapNode,
+	MapBooksResponse,
+	MapAuthorsResponse,
 	RecommendResponse,
 } from "./types";
 
 const API_PREFIX = "/api";
+const MAP_LIMIT = 5000;
 
 async function getJson<T>(path: string): Promise<T> {
 	const res = await fetch(`${API_PREFIX}${path}`);
@@ -33,12 +34,12 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 	return res.json() as Promise<T>;
 }
 
-export function fetchMapBooks(): Promise<MapNode[]> {
-	return getJson<MapNode[]>("/map/books");
+export function fetchMapBooks(limit = MAP_LIMIT): Promise<MapBooksResponse> {
+	return getJson<MapBooksResponse>(`/map/books?limit=${limit}`);
 }
 
-export function fetchMapAuthors(): Promise<AuthorNode[]> {
-	return getJson<AuthorNode[]>("/map/authors");
+export function fetchMapAuthors(limit = MAP_LIMIT): Promise<MapAuthorsResponse> {
+	return getJson<MapAuthorsResponse>(`/map/authors?limit=${limit}`);
 }
 
 export function fetchBook(id: string): Promise<Book> {

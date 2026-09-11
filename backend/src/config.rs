@@ -4,7 +4,7 @@ use std::path::PathBuf;
 /// Load `.env` from the current directory, searching upward until one is found.
 ///
 /// The `.env` lives at the repo root, but the backend may be run from either
-/// the repo root (`make backend-run`) or `backend/` (`cargo run`).
+/// the repo root or `backend/`
 pub fn load_dotenv() {
 	let _ = dotenvy::dotenv();
 

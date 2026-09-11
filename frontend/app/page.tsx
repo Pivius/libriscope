@@ -62,6 +62,7 @@ function buildAuthorNeighbors(
 export default function Home() {
 	const [mode, setMode] = useState<"books" | "authors">("books");
 	const [items, setItems] = useState<MapItem[]>([]);
+	const [total, setTotal] = useState(0);
 	const [hovered, setHovered] = useState<MapItem | null>(null);
 	const [selected, setSelected] = useState<MapItem | null>(null);
 	const [neighbors, setNeighbors] = useState<MapItem[]>([]);
@@ -74,6 +75,7 @@ export default function Home() {
 	const changeMode = (next: "books" | "authors") => {
 		setMode(next);
 		setItems([]);
+		setTotal(0);
 		setSelected(null);
 		setHovered(null);
 		setNeighbors([]);
@@ -141,18 +143,20 @@ export default function Home() {
 		(async () => {
 			try {
 				if (mode === "books") {
-					const nodes = await fetchMapBooks();
+					const res = await fetchMapBooks();
 
-					if (!cancelled)
+					if (!cancelled) {
 						setItems(
-						nodes.map((n) => ({ key: n.id, label: n.label, x: n.x, y: n.y })),
+						res.nodes.map((n) => ({ key: n.id, label: n.label, x: n.x, y: n.y })),
 					);
+						setTotal(res.total);
+					}
 				} else {
-					const nodes = await fetchMapAuthors();
+					const res = await fetchMapAuthors();
 
-					if (!cancelled)
+					if (!cancelled) {
 						setItems(
-						nodes.map((n) => ({
+						res.nodes.map((n) => ({
 							key: n.name,
 							label: n.name,
 							x: n.x,
@@ -160,6 +164,8 @@ export default function Home() {
 							workCount: n.work_count,
 						})),
 					);
+						setTotal(res.total);
+					}
 				}
 			} catch (err) {
 				console.error("failed to load map", err);
@@ -212,6 +218,7 @@ export default function Home() {
 			mode={mode}
 			hovered={hovered}
 			selected={selected}
+			total={total}
 			onHover={setHovered}
 			onSelect={handleSelect}
 			focusRequest={focusRequest}
