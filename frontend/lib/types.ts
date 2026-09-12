@@ -16,11 +16,27 @@ export interface MapNode {
 	label: string;
 	x: number;
 	y: number;
+	count?: number;
 }
 
 export interface MapBooksResponse {
 	nodes: MapNode[];
 	total: number;
+}
+
+export interface MapViewport {
+	z: number;
+	x0: number;
+	y0: number;
+	x1: number;
+	y1: number;
+	k: number;
+}
+
+export interface MapPointsResponse {
+	nodes: MapNode[];
+	total: number;
+	level: number;
 }
 
 export interface AuthorNode {

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { select } from "d3-selection";
 import { zoom, zoomIdentity } from "d3-zoom";
 import type { D3ZoomEvent, ZoomBehavior } from "d3-zoom";
+import { levelForZoom, WORLD_SCALE } from "@/lib/constants";
+import type { MapViewport } from "@/lib/types";
 import styles from "../app/page.module.css";
 
 export interface MapItem {
@@ -11,6 +13,7 @@ export interface MapItem {
 	label: string;
 	x: number;
 	y: number;
+	count?: number;
 	workCount?: number;
 	similarity?: number;
 	neighbor?: boolean;
@@ -33,11 +36,13 @@ interface MapCanvasProps {
 	onHover: (item: MapItem | null) => void;
 	onSelect: (item: MapItem | null, shiftKey?: boolean) => void;
 	focusRequest: { item: MapItem; nonce: number } | null;
+	onViewport?: (vp: MapViewport) => void;
 }
 
-const WORLD_SCALE = 380; // pixels per unit (coords are in [-1, 1])
 const LABEL_MIN_ZOOM = 2.0;
 const DOT_RADIUS = 2.4;
+const COUNT_RADIUS_MAX = 6;
+const VIEWPORT_THROTTLE_MS = 50;
 const LABEL_FONT = "11px 'Helvetica Neue', 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', 'Meiryo', Arial, sans-serif";
 const META_FONT = "10px 'Helvetica Neue', 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', 'Meiryo', Arial, sans-serif";
 const GRID_CELL = 14; 
@@ -112,6 +117,7 @@ export default function MapCanvas({
 	onHover,
 	onSelect,
 	focusRequest,
+	onViewport,
 }: MapCanvasProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const wrapRef = useRef<HTMLDivElement>(null);
@@ -136,6 +142,39 @@ export default function MapCanvas({
 	useEffect(() => {
 		stateRef.current = { items, neighbors, mode, hovered, selected, total: total ?? items.length, axisLabels, onHover, onSelect };
 	}, [items, neighbors, mode, hovered, selected, total, axisLabels, onHover, onSelect]);
+
+	// throttled viewport reporting for the data layer
+	const lastEmitRef = useRef(0);
+	const emitTimerRef = useRef<number | null>(null);
+	const emitViewport = useCallback(() => {
+		const fire = () => {
+			const wrap = wrapRef.current;
+			if (!wrap || !onViewport) return;
+			const w = wrap.clientWidth;
+			const h = wrap.clientHeight;
+			const t = transformRef.current;
+			onViewport({
+				z: levelForZoom(t.k),
+				x0: (t.invertX(0) - w / 2) / WORLD_SCALE,
+				y0: (t.invertY(0) - h / 2) / WORLD_SCALE,
+				x1: (t.invertX(w) - w / 2) / WORLD_SCALE,
+				y1: (t.invertY(h) - h / 2) / WORLD_SCALE,
+				k: t.k,
+			});
+		};
+		const now = performance.now();
+		const since = now - lastEmitRef.current;
+		if (since >= VIEWPORT_THROTTLE_MS) {
+			lastEmitRef.current = now;
+			fire();
+		} else if (emitTimerRef.current === null) {
+			emitTimerRef.current = window.setTimeout(() => {
+				emitTimerRef.current = null;
+				lastEmitRef.current = performance.now();
+				fire();
+			}, VIEWPORT_THROTTLE_MS - since);
+		}
+	}, [onViewport]);
 
 	useEffect(() => {
 		fetch("/axis-labels.json")
@@ -276,13 +315,24 @@ export default function MapCanvas({
 			if (isSel) continue;
 			const isHov = hov?.key === item.key;
 
-			let alpha = 1;
-			let radius = isHov ? 3.5 : DOT_RADIUS;
+			// aggregated cells: radius grows with sqrt(count), alpha eases down
+			// so dense clusters don't cover the canvas
+			const aggR =
+				item.count !== undefined && item.count > 1
+					? Math.min(DOT_RADIUS * Math.sqrt(item.count), COUNT_RADIUS_MAX)
+					: DOT_RADIUS;
+			const aggAlpha =
+				item.count !== undefined && item.count > 1
+					? Math.max(0.4, 1 / (1 + 0.15 * Math.sqrt(item.count - 1)))
+					: 1;
+
+			let alpha = aggAlpha;
+			let radius = isHov ? Math.max(3.5, aggR + 1) : aggR;
 			if (sel) {
 				const d = Math.hypot(item.x - sel.x, item.y - sel.y);
 				const sim = Math.exp(-(d * d) / 0.72);
-				alpha = isHov ? 1 : 0.10 + 0.90 * sim;
-				radius = isHov ? 3.5 : DOT_RADIUS * (0.55 + 0.45 * sim);
+				alpha = isHov ? 1 : aggAlpha * (0.10 + 0.90 * sim);
+				radius = isHov ? Math.max(3.5, aggR + 1) : aggR * (0.55 + 0.45 * sim);
 			}
 
 			ctx.globalAlpha = alpha;
@@ -363,9 +413,11 @@ export default function MapCanvas({
 			ctx.font = LABEL_FONT;
 			ctx.textBaseline = "middle";
 			setLetterSpacing(ctx, "0.04em");
-			for (const { item, sx, sy } of sorted) {
-				const isSel = sel?.key === item.key;
-				const isHov = hov?.key === item.key;
+		for (const { item, sx, sy } of sorted) {
+			const isSel = sel?.key === item.key;
+
+			if (!isSel && item.count !== undefined && item.count > 1) continue;
+			const isHov = hov?.key === item.key;
 				const text = item.label.length > 48 ? `${item.label.slice(0, 47)}…` : item.label;
 				const tw = ctx.measureText(text).width;
 				const lx = sx + (isSel ? 8 : 5);
@@ -449,6 +501,7 @@ export default function MapCanvas({
 			.on("zoom", (event: D3ZoomEvent<HTMLCanvasElement, unknown>) => {
 				transformRef.current = event.transform;
 				draw();
+				emitViewport();
 			});
 		
 		select(canvas)
@@ -463,7 +516,7 @@ export default function MapCanvas({
 			select(canvas).on(".zoom", null);
 			zoomRef.current = null;
 		};
-	}, [draw]);
+	}, [draw, emitViewport]);
 
 	useEffect(() => {
 		const canvas = canvasRef.current;
@@ -523,7 +576,9 @@ export default function MapCanvas({
 			const rect = canvas.getBoundingClientRect();
 			const px = e.clientX - rect.left;
 			const py = e.clientY - rect.top;
-			stateRef.current.onHover(hitTest(px, py));
+			const hit = hitTest(px, py);
+			stateRef.current.onHover(hit);
+			canvas.style.cursor = hit ? "pointer" : "";
 			setTooltip({ x: e.clientX, y: e.clientY });
 		};
 		
@@ -540,6 +595,7 @@ export default function MapCanvas({
 		
 		const onLeave = () => {
 			stateRef.current.onHover(null);
+			canvas.style.cursor = "";
 			setTooltip(null);
 		};
 		
@@ -557,12 +613,16 @@ export default function MapCanvas({
 	
 	useEffect(() => {
 		draw();
+		emitViewport();
 		const wrap = wrapRef.current;
 		if (!wrap) return;
-		const ro = new ResizeObserver(() => draw());
+		const ro = new ResizeObserver(() => {
+			draw();
+			emitViewport();
+		});
 		ro.observe(wrap);
 		return () => ro.disconnect();
-	}, [draw]);
+	}, [draw, emitViewport]);
 	
 	useEffect(() => {
 		draw();
@@ -579,6 +639,14 @@ export default function MapCanvas({
 				style={{ left: tooltip.x, top: tooltip.y }}
 			>
 			<div className={styles.title}>{tooltipItem.label}</div>
+			{tooltipItem.count !== undefined ? (
+				<>
+				<div className={styles.rule} />
+				<div className={styles.sub}>
+					{tooltipItem.count} {mode === "books" ? "books" : "authors"}
+				</div>
+				</>
+			) : null}
 			{tooltipItem.similarity !== undefined || tooltipItem.workCount !== undefined ? (
 				<>
 				<div className={styles.rule} />

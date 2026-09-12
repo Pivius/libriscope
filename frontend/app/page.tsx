@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import MapCanvas, { type MapItem } from "@/components/MapCanvas";
 import Toolbar from "@/components/Toolbar";
 import Shelf from "@/components/Shelf";
-import {
-	fetchMapAuthors,
-	fetchMapBooks,
-	recommendAuthors,
-	recommendBooks,
-} from "@/lib/api";
-import type { Recommendation, AuthorRecommendation } from "@/lib/types";
+import { recommendAuthors, recommendBooks } from "@/lib/api";
+import { useMapPoints } from "@/lib/useMapPoints";
+import type {
+	MapViewport,
+	Recommendation,
+	AuthorRecommendation,
+} from "@/lib/types";
 import styles from "./page.module.css";
 
 const NEIGHBOR_LIMIT = 16;
@@ -61,8 +61,8 @@ function buildAuthorNeighbors(
 
 export default function Home() {
 	const [mode, setMode] = useState<"books" | "authors">("books");
-	const [items, setItems] = useState<MapItem[]>([]);
-	const [total, setTotal] = useState(0);
+	const [viewport, setViewport] = useState<MapViewport | null>(null);
+	const { items, total } = useMapPoints(mode === "books" ? "book" : "author", viewport);
 	const [hovered, setHovered] = useState<MapItem | null>(null);
 	const [selected, setSelected] = useState<MapItem | null>(null);
 	const [neighbors, setNeighbors] = useState<MapItem[]>([]);
@@ -74,8 +74,6 @@ export default function Home() {
 
 	const changeMode = (next: "books" | "authors") => {
 		setMode(next);
-		setItems([]);
-		setTotal(0);
 		setSelected(null);
 		setHovered(null);
 		setNeighbors([]);
@@ -137,59 +135,28 @@ export default function Home() {
 		setFocusRequest((prev) => ({ item: base, nonce: (prev?.nonce ?? 0) + 1 }));
 	};
 
+	const selectedItem = selected
+		? (items.find((it) => it.key === selected.key) ?? selected)
+		: null;
+
+	const itemsRef = useRef(items);
 	useEffect(() => {
-		let cancelled = false;
-
-		(async () => {
-			try {
-				if (mode === "books") {
-					const res = await fetchMapBooks();
-
-					if (!cancelled) {
-						setItems(
-						res.nodes.map((n) => ({ key: n.id, label: n.label, x: n.x, y: n.y })),
-					);
-						setTotal(res.total);
-					}
-				} else {
-					const res = await fetchMapAuthors();
-
-					if (!cancelled) {
-						setItems(
-						res.nodes.map((n) => ({
-							key: n.name,
-							label: n.name,
-							x: n.x,
-							y: n.y,
-							workCount: n.work_count,
-						})),
-					);
-						setTotal(res.total);
-					}
-				}
-			} catch (err) {
-				console.error("failed to load map", err);
-			}
-		})();
-
-		return () => {
-			cancelled = true;
-		};
-	}, [mode]);
+		itemsRef.current = items;
+	}, [items]);
 
 	useEffect(() => {
 		let cancelled = false;
 
-		if (!selected) return;
+		if (!selectedItem) return;
 
 		(async () => {
 			try {
 				if (mode === "books") {
-					const res = await recommendBooks([selected.key], NEIGHBOR_LIMIT);
-					if (!cancelled) setNeighbors(buildBookNeighbors(res.recommendations, selected, items));
+					const res = await recommendBooks([selectedItem.key], NEIGHBOR_LIMIT);
+					if (!cancelled) setNeighbors(buildBookNeighbors(res.recommendations, selectedItem, itemsRef.current));
 				} else {
-					const res = await recommendAuthors([selected.key], NEIGHBOR_LIMIT);
-					if (!cancelled) setNeighbors(buildAuthorNeighbors(res.recommendations, selected, items));
+					const res = await recommendAuthors([selectedItem.key], NEIGHBOR_LIMIT);
+					if (!cancelled) setNeighbors(buildAuthorNeighbors(res.recommendations, selectedItem, itemsRef.current));
 				}
 			} catch (err) {
 				console.error("failed to fetch recommendations", err);
@@ -199,7 +166,7 @@ export default function Home() {
 		return () => {
 			cancelled = true;
 		};
-	}, [selected, mode, items]);
+	}, [selectedItem, mode]);
 
 	return (
 		<div className={styles.mapPage}>
@@ -207,21 +174,22 @@ export default function Home() {
 			mode={mode}
 			items={items}
 			onModeChange={changeMode}
-			selectedLabel={selected?.label ?? null}
+			selectedLabel={selectedItem?.label ?? null}
 			onClear={() => handleSelect(null)}
 			onSearchSelect={handleSearchSelect}
-			count={items.length}
+			count={total}
 		/>
 		<MapCanvas
 			items={items}
 			neighbors={neighbors}
 			mode={mode}
 			hovered={hovered}
-			selected={selected}
+			selected={selectedItem}
 			total={total}
 			onHover={setHovered}
 			onSelect={handleSelect}
 			focusRequest={focusRequest}
+			onViewport={setViewport}
 		/>
 		{mode === "books" ? (
 			<Shelf
