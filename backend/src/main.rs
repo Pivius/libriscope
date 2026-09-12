@@ -1,12 +1,11 @@
 mod config;
 mod db;
 mod error;
+mod grid;
 mod handlers;
 mod models;
 mod recommend;
 mod state;
-
-use std::sync::Arc;
 
 use axum::{routing::get, Router};
 use tower_http::cors::CorsLayer;
@@ -22,6 +21,8 @@ fn app(state: AppState) -> Router {
 		.route("/recommend", axum::routing::post(handlers::recommend_books))
 		.route("/map/books", get(handlers::map_books))
 		.route("/map/authors", get(handlers::map_authors))
+		.route("/map/points", get(handlers::map_points))
+		.route("/map/counts", get(handlers::map_counts))
 		.route("/authors/{name}", get(handlers::get_author))
 		.route("/recommend-authors", axum::routing::post(handlers::recommend_authors))
 		.layer(CorsLayer::permissive())
@@ -43,9 +44,7 @@ async fn main() {
 		.await
 		.expect("failed to connect to database");
 
-	let state = AppState {
-		pool: Arc::new(pool),
-	};
+	let state = AppState::new(pool);
 
 	let listener = tokio::net::TcpListener::bind(config.bind_addr)
 		.await
@@ -82,9 +81,7 @@ mod tests {
 
 	async fn app_for_test() -> Option<Router> {
 		let pool = test_pool().await?;
-		Some(app(AppState {
-			pool: Arc::new(pool),
-		}))
+		Some(app(AppState::new(pool)))
 	}
 
 	async fn body_string(body: Body) -> String {
@@ -337,5 +334,188 @@ mod tests {
 		let body = body_string(res.into_body()).await;
 		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
 		assert_eq!(json["nodes"].as_array().unwrap().len(), 5000.min(total as usize));
+	}
+
+	#[tokio::test]
+	async fn map_counts_matches_map_coords() {
+		let Some(app) = app_for_test().await else { return };
+		let Some(pool) = test_pool().await else { return };
+
+		let res = app
+			.oneshot(
+				Request::builder()
+					.uri("/map/counts")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let counts: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+		let (books,): (i64,) = sqlx::query_as("SELECT count(*) FROM map_coords WHERE entity = 'book'")
+			.fetch_one(&pool)
+			.await
+			.unwrap();
+		let (authors,): (i64,) =
+			sqlx::query_as("SELECT count(*) FROM map_coords WHERE entity = 'author'")
+				.fetch_one(&pool)
+				.await
+				.unwrap();
+
+		assert_eq!(counts["books"].as_i64().unwrap(), books);
+		assert_eq!(counts["authors"].as_i64().unwrap(), authors);
+	}
+
+	#[tokio::test]
+	async fn map_points_level0_full_world() {
+		let Some(app) = app_for_test().await else { return };
+		let Some(pool) = test_pool().await else { return };
+
+		let res = app
+			.oneshot(
+				Request::builder()
+					.uri("/map/points?entity=book&z=0&x0=-1&y0=-1&x1=1&y1=1")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+		let (total,): (i64,) = sqlx::query_as("SELECT count(*) FROM map_coords WHERE entity = 'book'")
+			.fetch_one(&pool)
+			.await
+			.unwrap();
+		if total == 0 {
+			return; // no map data seeded
+		}
+
+		let nodes = json["nodes"].as_array().unwrap();
+		assert_eq!(nodes.len(), 1, "level 0 aggregates the whole world into one cell");
+		assert_eq!(nodes[0]["count"].as_i64().unwrap(), total);
+		assert_eq!(json["total"].as_i64().unwrap(), total);
+		assert_eq!(json["level"].as_i64().unwrap(), 0);
+		assert!(nodes[0]["id"].is_string());
+		assert!(nodes[0]["label"].is_string());
+	}
+
+	#[tokio::test]
+	async fn map_points_rejects_invalid_params() {
+		let Some(app) = app_for_test().await else { return };
+
+		for uri in [
+			"/map/points?entity=planet&z=3&x0=-1&y0=-1&x1=1&y1=1",
+			"/map/points?entity=book&z=99&x0=-1&y0=-1&x1=1&y1=1",
+			"/map/points?entity=book&z=-1&x0=-1&y0=-1&x1=1&y1=1",
+			"/map/points?entity=book&z=3&x0=1&y0=-1&x1=-1&y1=1",
+		] {
+			let res = app
+				.clone()
+				.oneshot(
+					Request::builder()
+						.uri(uri)
+						.body(Body::empty())
+						.unwrap(),
+				)
+				.await
+				.unwrap();
+			assert_eq!(res.status(), StatusCode::BAD_REQUEST, "{uri}");
+		}
+	}
+
+	#[tokio::test]
+	async fn map_points_high_zoom_returns_intersecting_cells() {
+		let Some(app) = app_for_test().await else { return };
+		let Some(pool) = test_pool().await else { return };
+
+		let Some((px, py)): Option<(f64, f64)> = sqlx::query_as(
+			"SELECT x, y FROM map_coords WHERE entity = 'book' LIMIT 1",
+		)
+		.fetch_optional(&pool)
+		.await
+		.unwrap() else {
+			return; // no map data seeded
+		};
+
+		let z = 13;
+		let side = 2.0 / (1i64 << z) as f64;
+		let x0 = px - side * 0.25;
+		let x1 = px + side * 0.25;
+		let y0 = py - side * 0.25;
+		let y1 = py + side * 0.25;
+
+		let uri = format!(
+			"/map/points?entity=book&z={z}&x0={x0}&y0={y0}&x1={x1}&y1={y1}"
+		);
+		let res = app
+			.oneshot(
+				Request::builder()
+					.uri(uri)
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		let nodes = json["nodes"].as_array().unwrap();
+		assert!(
+			!nodes.is_empty(),
+			"the cell containing the seeded point must be returned"
+		);
+		for n in nodes {
+			let nx = n["x"].as_f64().unwrap();
+			let ny = n["y"].as_f64().unwrap();
+			assert!(
+				nx >= x0 - side && nx <= x1 + side && ny >= y0 - side && ny <= y1 + side,
+				"returned cell positions must be near the viewport"
+			);
+		}
+	}
+
+	#[tokio::test]
+	async fn map_points_degrades_huge_viewport_level() {
+		let Some(app) = app_for_test().await else { return };
+
+		let res = app
+			.oneshot(
+				Request::builder()
+					.uri("/map/points?entity=book&z=13&x0=-1&y0=-1&x1=1&y1=1")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		let nodes = json["nodes"].as_array().unwrap();
+		assert!(nodes.len() <= 4096, "cell scan cap must hold");
+		assert_eq!(json["level"].as_i64().unwrap(), 6);
+	}
+
+	#[tokio::test]
+	async fn map_points_off_world_viewport_is_empty() {
+		let Some(app) = app_for_test().await else { return };
+
+		let res = app
+			.oneshot(
+				Request::builder()
+					.uri("/map/points?entity=book&z=5&x0=2&y0=2&x1=3&y1=3")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		assert_eq!(json["nodes"].as_array().unwrap().len(), 0);
+		assert_eq!(json["total"].as_i64().unwrap(), 0);
 	}
 }

@@ -78,6 +78,49 @@ pub struct MapQuery {
 	pub limit: Option<i64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct MapPointsQuery {
+	pub entity: String,
+	pub z: i32,
+	pub x0: f64,
+	pub y0: f64,
+	pub x1: f64,
+	pub y1: f64,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct GridRow {
+	pub cx: i32,
+	pub cy: i32,
+	pub count: i32,
+	pub x_avg: f64,
+	pub y_avg: f64,
+	pub sample_id: String,
+	pub sample_label: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MapPointNode {
+	pub id: String,
+	pub label: String,
+	pub x: f64,
+	pub y: f64,
+	pub count: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MapPointsResponse {
+	pub nodes: Vec<MapPointNode>,
+	pub total: i64,
+	pub level: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CountsResponse {
+	pub books: i64,
+	pub authors: i64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AuthorDetail {
 	pub name: String,
