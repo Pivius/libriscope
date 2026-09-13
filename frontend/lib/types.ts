@@ -39,6 +39,10 @@ export interface MapPointsResponse {
 	level: number;
 }
 
+export interface SearchResponse {
+	nodes: MapNode[];
+}
+
 export interface AuthorNode {
 	name: string;
 	work_count: number;

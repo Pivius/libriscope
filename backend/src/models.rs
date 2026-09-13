@@ -79,6 +79,26 @@ pub struct MapQuery {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct SearchQuery {
+	pub q: String,
+	pub entity: Option<String>,
+	pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct SearchNode {
+	pub id: String,
+	pub label: String,
+	pub x: f64,
+	pub y: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchResponse {
+	pub nodes: Vec<SearchNode>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct MapPointsQuery {
 	pub entity: String,
 	pub z: i32,

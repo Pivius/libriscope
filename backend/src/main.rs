@@ -23,6 +23,7 @@ fn app(state: AppState) -> Router {
 		.route("/map/authors", get(handlers::map_authors))
 		.route("/map/points", get(handlers::map_points))
 		.route("/map/counts", get(handlers::map_counts))
+		.route("/search", get(handlers::search))
 		.route("/authors/{name}", get(handlers::get_author))
 		.route("/recommend-authors", axum::routing::post(handlers::recommend_authors))
 		.layer(CorsLayer::permissive())
@@ -337,8 +338,91 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn map_counts_matches_map_coords() {
+	async fn search_returns_matching_nodes() {
 		let Some(app) = app_for_test().await else { return };
+		let Some(pool) = test_pool().await else { return };
+
+		// pick a real title fragment so the test is data-independent
+		let Some((title,)): Option<(String,)> = sqlx::query_as(
+			"SELECT w.title FROM works w JOIN map_coords mc ON mc.entity = 'book' AND mc.entity_id = w.id \
+			 WHERE w.title IS NOT NULL LIMIT 1",
+		)
+		.fetch_optional(&pool)
+		.await
+		.unwrap() else {
+			return; // no map data seeded
+		};
+		// take a middle slice of the title so the ILIKE %..% path is exercised
+		let chars: Vec<char> = title.chars().collect();
+		let frag: String = if chars.len() > 6 {
+			chars[2..6].iter().collect()
+		} else {
+			title.clone()
+		};
+		let encoded = frag
+			.replace('%', "%25")
+			.replace(' ', "%20")
+			.replace('/', "%2F")
+			.replace('?', "%3F")
+			.replace('&', "%26")
+			.replace('#', "%23");
+
+		let res = app
+			.clone()
+			.oneshot(
+				Request::builder()
+					.uri(format!("/search?q={}&entity=book", encoded))
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		let nodes = json["nodes"].as_array().unwrap();
+		assert!(
+			!nodes.is_empty(),
+			"search for a real title fragment must match at least the source work"
+		);
+		for n in nodes {
+			assert!(n["id"].is_string());
+			assert!(n["label"].is_string());
+			assert!(n["x"].is_f64());
+			assert!(n["y"].is_f64());
+		}
+
+		// empty query -> empty result, not an error
+		let res = app
+			.clone()
+			.oneshot(
+				Request::builder()
+					.uri("/search?q=&entity=book")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = body_string(res.into_body()).await;
+		let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+		assert_eq!(json["nodes"].as_array().unwrap().len(), 0);
+
+		// invalid entity -> 400
+		let res = app
+			.oneshot(
+				Request::builder()
+					.uri("/search?q=x&entity=planet")
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+	}
+
+	#[tokio::test]
+	async fn map_counts_matches_map_coords() {		let Some(app) = app_for_test().await else { return };
 		let Some(pool) = test_pool().await else { return };
 
 		let res = app

@@ -5,6 +5,7 @@ import type {
 	MapBooksResponse,
 	MapAuthorsResponse,
 	RecommendResponse,
+	SearchResponse,
 } from "./types";
 
 const API_PREFIX = "/api";
@@ -40,6 +41,15 @@ export function fetchMapBooks(limit = MAP_LIMIT): Promise<MapBooksResponse> {
 
 export function fetchMapAuthors(limit = MAP_LIMIT): Promise<MapAuthorsResponse> {
 	return getJson<MapAuthorsResponse>(`/map/authors?limit=${limit}`);
+}
+
+export function searchMap(
+	q: string,
+	entity: "book" | "author",
+	limit = 10,
+): Promise<SearchResponse> {
+	const params = new URLSearchParams({ q, entity, limit: String(limit) });
+	return getJson<SearchResponse>(`/search?${params.toString()}`);
 }
 
 export function fetchBook(id: string): Promise<Book> {

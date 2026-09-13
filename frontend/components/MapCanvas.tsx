@@ -299,7 +299,7 @@ export default function MapCanvas({
 
 		// rays from selection to each neighbor
 		if (hasNbr && selScreen) {
-			ctx.strokeStyle = "rgba(227, 66, 52, 0.28)";
+			ctx.strokeStyle = "rgba(227, 66, 52, 0.5)";
 			ctx.lineWidth = 1;
 			for (const nb of nbrScreen) {
 				ctx.beginPath();
@@ -462,20 +462,20 @@ export default function MapCanvas({
 		);
 		setLetterSpacing(ctx, "0em");
 
-		// quadrant genre labels (auto-generated, world-anchored)
 		if (axl) {
 			const labels = axl[m];
-			const anchors: [Quadrant, number, number, CanvasTextAlign][] = [
-				["top-left", -0.7, -0.7, "left"],
-				["top-right", 0.7, -0.7, "right"],
-				["bottom-left", -0.7, 0.7, "left"],
-				["bottom-right", 0.7, 0.7, "right"],
+			const anchors: [Quadrant, number, number][] = [
+				["top-left", -1, -1],
+				["top-right", 1, -1],
+				["bottom-left", -1, 1],
+				["bottom-right", 1, 1],
 			];
 			ctx.fillStyle = INK_SOFT;
 			ctx.font = META_FONT;
 			ctx.textBaseline = "alphabetic";
+			ctx.textAlign = "center";
 			setLetterSpacing(ctx, "0.12em");
-			for (const [q, wx, wy, align] of anchors) {
+			for (const [q, wx, wy] of anchors) {
 				const terms = labels?.[q] ?? [];
 				if (terms.length === 0) continue;
 				const [sx, sy] = toScreen(wx, wy);
@@ -483,8 +483,7 @@ export default function MapCanvas({
 					.slice(0, 2)
 					.map((t) => t.charAt(0).toUpperCase() + t.slice(1))
 					.join(" · ");
-				ctx.textAlign = align;
-				ctx.fillText(text, sx + (align === "right" ? -8 : 8), sy + (wy < 0 ? 16 : -8));
+				ctx.fillText(text, sx, sy + (wy < 0 ? 16 : -8));
 			}
 			ctx.textAlign = "start";
 			setLetterSpacing(ctx, "0em");

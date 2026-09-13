@@ -11,6 +11,7 @@ use crate::models::{
 	AuthorDetail, AuthorNode, AuthorRecommendRequest, AuthorRecommendResponse, Book, CountsResponse,
 	GridRow, HealthResponse, MapAuthorsResponse, MapBooksResponse, MapNode, MapPointNode,
 	MapPointsQuery, MapPointsResponse, MapQuery, RecommendRequest, RecommendResponse,
+	SearchNode, SearchQuery, SearchResponse,
 };
 
 const MAP_LIMIT_DEFAULT: i64 = 5000;
@@ -165,6 +166,61 @@ pub async fn recommend_authors(
 ) -> Result<Json<AuthorRecommendResponse>, AppError> {
 	let recommendations = recommend::recommend_authors(pool.as_ref(), &req).await?;
 	Ok(Json(AuthorRecommendResponse { recommendations }))
+}
+
+const SEARCH_LIMIT_DEFAULT: i64 = 10;
+const SEARCH_LIMIT_MAX: i64 = 50;
+
+pub async fn search(
+	State(AppState { pool, .. }): State<AppState>,
+	Query(q): Query<SearchQuery>,
+) -> Result<Json<SearchResponse>, AppError> {
+	let term = q.q.trim();
+	if term.is_empty() {
+		return Ok(Json(SearchResponse { nodes: Vec::new() }));
+	}
+	let entity = q.entity.as_deref().unwrap_or("book");
+	if entity != "book" && entity != "author" {
+		return Err(AppError::BadRequest(
+			"entity must be 'book' or 'author'".to_string(),
+		));
+	}
+	let limit = q.limit.unwrap_or(SEARCH_LIMIT_DEFAULT).clamp(1, SEARCH_LIMIT_MAX);
+	let pattern = format!("%{}%", term.replace('%', "\\%").replace('_', "\\_"));
+
+	let nodes = if entity == "book" {
+		sqlx::query_as::<_, SearchNode>(
+			r#"
+			SELECT w.id AS id, w.title AS label, mc.x, mc.y
+			FROM works w
+			JOIN map_coords mc ON mc.entity = 'book' AND mc.entity_id = w.id
+			WHERE w.title ILIKE $1
+			ORDER BY w.title
+			LIMIT $2
+			"#,
+		)
+			.bind(&pattern)
+			.bind(limit)
+			.fetch_all(pool.as_ref())
+			.await?
+	} else {
+		sqlx::query_as::<_, SearchNode>(
+			r#"
+			SELECT a.name AS id, a.name AS label, mc.x, mc.y
+			FROM authors a
+			JOIN map_coords mc ON mc.entity = 'author' AND mc.entity_id = a.name
+			WHERE a.name ILIKE $1
+			ORDER BY a.name
+			LIMIT $2
+			"#,
+		)
+			.bind(&pattern)
+			.bind(limit)
+			.fetch_all(pool.as_ref())
+			.await?
+	};
+
+	Ok(Json(SearchResponse { nodes }))
 }
 
 #[derive(Debug, sqlx::FromRow)]

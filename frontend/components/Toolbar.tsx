@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MapItem } from "./MapCanvas";
+import { searchMap } from "@/lib/api";
+import type { MapNode } from "@/lib/types";
 import styles from "../app/page.module.css";
 
 interface ToolbarProps {
 	mode: "books" | "authors";
-	items: MapItem[];
 	onModeChange: (mode: "books" | "authors") => void;
 	selectedLabel: string | null;
 	onClear: () => void;
@@ -14,9 +15,10 @@ interface ToolbarProps {
 	count: number;
 }
 
+const SEARCH_DEBOUNCE_MS = 250;
+
 export default function Toolbar({
 	mode,
-	items,
 	onModeChange,
 	selectedLabel,
 	onClear,
@@ -24,14 +26,48 @@ export default function Toolbar({
 	count,
 }: ToolbarProps) {
 	const [query, setQuery] = useState("");
+	const [search, setSearch] = useState<{ entity: string; items: MapItem[] } | null>(null);
 	const [open, setOpen] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const abortRef = useRef<AbortController | null>(null);
+
+	const entity = mode === "books" ? "book" : "author";
+
+	// debounced server-side search across the whole dataset
+	useEffect(() => {
+		const q = query.trim();
+		if (q.length === 0) return;
+		const timer = setTimeout(() => {
+			abortRef.current?.abort();
+			const controller = new AbortController();
+			abortRef.current = controller;
+			searchMap(q, entity, 8)
+				.then((res) => {
+					if (controller.signal.aborted) return;
+					setSearch({
+						entity,
+						items: res.nodes.map((n: MapNode) => ({
+							key: n.id,
+							label: n.label,
+							x: n.x,
+							y: n.y,
+						})),
+					});
+				})
+				.catch((err) => {
+					if ((err as Error).name !== "AbortError") {
+						console.error("search failed", err);
+					}
+				});
+		}, SEARCH_DEBOUNCE_MS);
+		return () => clearTimeout(timer);
+	}, [query, entity]);
 
 	const q = query.trim().toLowerCase();
-	const results =
-		q.length === 0
+	const visibleResults =
+		q.length === 0 || search === null || search.entity !== entity
 			? []
-			: items.filter((it) => it.label.toLowerCase().includes(q)).slice(0, 8);
+			: search.items;
 
 	const choose = (item: MapItem) => {
 		onSearchSelect(item);
@@ -83,14 +119,14 @@ export default function Toolbar({
 						if (e.key === "Escape") {
 							setOpen(false);
 							inputRef.current?.blur();
-						} else if (e.key === "Enter" && results.length > 0) {
-							choose(results[0]);
+						} else if (e.key === "Enter" && visibleResults.length > 0) {
+							choose(visibleResults[0]);
 						}
 					}}
 				/>
-				{open && results.length > 0 ? (
+				{open && visibleResults.length > 0 ? (
 					<div className={styles.searchResults}>
-						{results.map((it) => (
+						{visibleResults.map((it) => (
 							<button
 								key={it.key}
 								className={styles.searchResult}

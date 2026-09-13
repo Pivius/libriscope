@@ -22,18 +22,27 @@ function buildBookNeighbors(
 	items: MapItem[],
 ): MapItem[] {
 	return recs.map((rec, i) => {
+		const base = items.find((it) => it.key === rec.work_id);
+		if (base) {
+			return {
+				key: rec.work_id,
+				label: rec.title ?? rec.work_id,
+				x: base.x,
+				y: base.y,
+				count: base.count,
+				similarity: rec.similarity,
+				neighbor: true,
+			};
+		}
 		const angle = (2 * Math.PI * i) / recs.length - Math.PI / 2;
 		const radius = (1 - rec.similarity) * RADIAL_SPREAD;
-		const key = rec.work_id;
-		const base = items.find((it) => it.key === key);
 		return {
-			key,
-			label: rec.title ?? key,
+			key: rec.work_id,
+			label: rec.title ?? rec.work_id,
 			x: center.x + Math.cos(angle) * radius,
 			y: center.y + Math.sin(angle) * radius,
 			similarity: rec.similarity,
 			neighbor: true,
-			workCount: base?.workCount,
 		};
 	});
 }
@@ -44,9 +53,20 @@ function buildAuthorNeighbors(
 	items: MapItem[],
 ): MapItem[] {
 	return recs.map((rec, i) => {
+		const base = items.find((it) => it.key === rec.name);
+		if (base) {
+			return {
+				key: rec.name,
+				label: rec.name,
+				x: base.x,
+				y: base.y,
+				count: base.count,
+				similarity: rec.similarity,
+				neighbor: true,
+			};
+		}
 		const angle = (2 * Math.PI * i) / recs.length - Math.PI / 2;
 		const radius = (1 - rec.similarity) * RADIAL_SPREAD;
-		const base = items.find((it) => it.key === rec.name);
 		return {
 			key: rec.name,
 			label: rec.name,
@@ -54,7 +74,6 @@ function buildAuthorNeighbors(
 			y: center.y + Math.sin(angle) * radius,
 			similarity: rec.similarity,
 			neighbor: true,
-			workCount: base?.workCount,
 		};
 	});
 }
@@ -172,7 +191,6 @@ export default function Home() {
 		<div className={styles.mapPage}>
 		<Toolbar
 			mode={mode}
-			items={items}
 			onModeChange={changeMode}
 			selectedLabel={selectedItem?.label ?? null}
 			onClear={() => handleSelect(null)}
@@ -191,7 +209,7 @@ export default function Home() {
 			focusRequest={focusRequest}
 			onViewport={setViewport}
 		/>
-		{mode === "books" ? (
+		{mode === "books" && shelf.length > 1 ? (
 			<Shelf
 				shelf={shelf}
 				genreMode={genreMode}
