@@ -32,7 +32,7 @@ def run_pipeline(
 		It runs as a 3-stage pipeline with threads.
 
 		1. Reader thread, streams/parses the CSV dumps, applies the
-			skip-existing and max_works filtering, then builds embedding text and enqueues
+			skip-existing filtering, then builds embedding text and enqueues
 			chunks of specified embed_batch_size or the model's batch size.
 		2. Main thread, owns the FP16 model and encodes as fast as it
 			will go and enqueues the IDs, items, and vectors for each chunk.
@@ -74,12 +74,18 @@ def run_pipeline(
 		store.clear_all()
 
 	existing = set()
+	offset = 0
 
 	if skip_existing:
 		if store is not None:
 			existing = store.existing_work_ids()
+			offset = store.existing_work_count()
 			if existing:
-				print(f"Resuming: {len(existing):,} work(s) already embedded, skipping", flush=True)
+				print(
+					f"Resuming: {len(existing):,} work(s) already embedded, "
+					f"skipping stream offset {offset:,}",
+					flush=True,
+				)
 		else:
 			print("Note: skip_existing enabled but no store available; nothing to skip", flush=True)
 
@@ -90,33 +96,31 @@ def run_pipeline(
 
 	if store is None or os.environ.get("ETL_SERIAL") == "1":
 		return _run_serial(adapter, store, model, processed_dir, enabled, max_aux, chunk_size,
-			existing, max_works, write_db)
+			existing, max_works, offset, write_db)
 	return _run_parallel(adapter, store, model, processed_dir, enabled, max_aux,
-		chunk_size, existing, max_works, write_db)
+		chunk_size, existing, max_works, offset, write_db)
 
 
 def _read_worker(adapter, processed_dir: str, enabled, max_aux, chunk_size: int,
-		existing: set, max_works: Optional[int], in_q: Queue, result: Dict) -> None:
+		existing: set, max_works: Optional[int], offset: int, in_q: Queue, result: Dict) -> None:
 	"""Stream/parse, filter, build text, and queue chunks. Ends with a sentinel."""
 	count = 0
 	skipped = 0
+	total_seen = 0
 
 	try:
-		items = adapter.collate_from_dir(processed_dir, enabled=enabled, max_aux=max_aux)
+		items = adapter.collate_from_dir(processed_dir, enabled=enabled, max_aux=max_aux,
+			max_works=max_works, offset=offset)
 
 		for ids, batch in iter_batches(items, chunk_size):
-			if max_works is not None and count >= max_works:
-				break
-
 			ids_out: List[str] = []
 			items_out: List = []
 
 			for id_, item in zip(ids, batch):
+				total_seen += 1
 				if item.id in existing:
 					skipped += 1
 					continue
-				if max_works is not None and count + len(items_out) >= max_works:
-					break
 
 				ids_out.append(id_)
 				items_out.append(item)
@@ -128,12 +132,14 @@ def _read_worker(adapter, processed_dir: str, enabled, max_aux, chunk_size: int,
 			count += len(items_out)
 			result["count"] = count
 			result["skipped"] = skipped
+			result["total_seen"] = total_seen
 	except BaseException as exc:
 		result["exc"] = exc
 	finally:
 		in_q.put(_SENTINEL)
 		result["count"] = count
 		result["skipped"] = skipped
+		result["total_seen"] = total_seen
 
 
 def _write_flush(store, items: List, vectors: List, write_db: bool) -> None:
@@ -180,7 +186,7 @@ def _write_worker(store, out_q: Queue, write_db: bool, result: Dict) -> None:
 
 def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 		max_aux, chunk_size: int, existing: set, max_works: Optional[int],
-		write_db: bool) -> int:
+		offset: int, write_db: bool) -> int:
 	in_q: Queue = Queue(maxsize=_QUEUE_SIZE)
 	out_q: Queue = Queue(maxsize=_QUEUE_SIZE)
 	read_result: Dict = {"count": 0, "skipped": 0}
@@ -189,7 +195,7 @@ def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 		target=_read_worker,
 		kwargs={"adapter": adapter, "processed_dir": processed_dir, "enabled": enabled,
 			"max_aux": max_aux, "chunk_size": chunk_size, "existing": existing,
-			"max_works": max_works, "in_q": in_q, "result": read_result},
+			"max_works": max_works, "offset": offset, "in_q": in_q, "result": read_result},
 		daemon=True,
 	)
 	write_worker = Thread(
@@ -223,7 +229,10 @@ def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 
 			out_q.put((ids, items, vectors))
 			bar.update(1)
-			bar.set_postfix_str(f"{read_result['count']:,} new / {read_result['skipped']:,} skipped")
+			bar.set_postfix_str(
+				f"{read_result.get('total_seen', 0):,} seen"
+				f" / {read_result['count']:,} new / {read_result['skipped']:,} skip"
+			)
 
 		read_worker.join()
 		out_q.put(_SENTINEL)
@@ -251,14 +260,17 @@ def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 
 
 def _run_serial(adapter, store, model, processed_dir: str, enabled,
-		max_aux, chunk_size: int, existing: set, max_works: Optional[int], write_db: bool) -> int:
+		max_aux, chunk_size: int, existing: set, max_works: Optional[int],
+		offset: int, write_db: bool) -> int:
 	"""Single-threaded fallback loop.
-		
+
 		ETL_SERIAL=1 or no store
 	"""
 	count = 0
 	skipped = 0
-	items = adapter.collate_from_dir(processed_dir, enabled=enabled, max_aux=max_aux)
+	total_seen = 0
+	items = adapter.collate_from_dir(processed_dir, enabled=enabled, max_aux=max_aux,
+		max_works=max_works, offset=offset)
 	bar = tqdm(desc="ETL", unit="batch", ncols=100)
 
 	try:
@@ -267,18 +279,14 @@ def _run_serial(adapter, store, model, processed_dir: str, enabled,
 			store.drop_embedding_index()
 
 		for ids, batch in iter_batches(items, chunk_size):
-			if max_works is not None and count >= max_works:
-				break
-
 			items_out = []
 			ids_out = []
 
 			for id_, item in zip(ids, batch):
+				total_seen += 1
 				if item.id in existing:
 					skipped += 1
 					continue
-				if max_works is not None and count + len(items_out) >= max_works:
-					break
 
 				ids_out.append(id_)
 				items_out.append(item)
@@ -305,7 +313,9 @@ def _run_serial(adapter, store, model, processed_dir: str, enabled,
 
 			count += len(items_out)
 			bar.update(1)
-			bar.set_postfix_str(f"{count:,} new / {skipped:,} skipped")
+			bar.set_postfix_str(
+				f"{total_seen:,} seen / {count:,} new / {skipped:,} skip"
+			)
 	finally:
 		bar.close()
 		

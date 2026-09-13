@@ -6,3 +6,4 @@ numpy
 tqdm
 python-dotenv
 sentence-transformers
+fasttext-langdetect

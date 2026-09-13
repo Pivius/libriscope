@@ -146,12 +146,19 @@ class EmbeddingStore:
 			conn.execute(text(
 				"TRUNCATE TABLE works, work_embeddings, ratings, authors, map_coords CASCADE"
 			))
+			# bookkeeping, must not survive a reset
+			conn.execute(text("DELETE FROM pipeline_meta"))
 
 	def existing_work_ids(self) -> set:
 		"""Return the set of work_ids that already have embeddings."""
 		with self.engine.connect() as conn:
 			rows = conn.execute(text("SELECT work_id FROM work_embeddings"))
 			return {r[0] for r in rows}
+
+	def existing_work_count(self) -> int:
+		"""Count of committed embeddings — used as the resume offset."""
+		with self.engine.connect() as conn:
+			return int(conn.execute(text("SELECT count(*) FROM work_embeddings")).scalar_one())
 
 	def upsert_work(self, item: CanonicalItem) -> None:
 		sql = text("""

@@ -8,7 +8,8 @@ class _FakeAdapter:
 	def __init__(self, items):
 		self._items = items
 
-	def collate_from_dir(self, processed_dir, enabled=None, max_aux=None):
+	def collate_from_dir(self, processed_dir, enabled=None, max_aux=None, max_works=None, offset=0):
+		assert offset == 0, "test fixtures always start from the beginning"
 		return iter(self._items)
 
 
@@ -42,7 +43,7 @@ def test_read_worker_chunks_builds_text_and_sends_sentinel():
 	items = _items(5)
 	in_q = Queue()
 	result = {}
-	_read_worker(_FakeAdapter(items), "dir", None, None, 2, set(), None, in_q, result)
+	_read_worker(_FakeAdapter(items), "dir", None, None, 2, set(), None, 0, in_q, result)
 	chunks = _collect(in_q)
 	assert [i for _, _, batch in chunks for i in [c.id for c in batch]] == [f"/works/{i}W" for i in range(5)]
 	assert all(len(ids) == len(items) for ids, texts, items in chunks)
@@ -51,15 +52,17 @@ def test_read_worker_chunks_builds_text_and_sends_sentinel():
 	assert result["skipped"] == 0
 
 
-def test_read_worker_skips_existing_and_stops_at_max_works():
-	items = _items(10)
+def test_read_worker_skips_existing():
+	# max_works is enforced in the adapter, not the pipeline; the reader
+	# only filters already-embedded works
+	items = _items(4)
 	in_q = Queue()
 	result = {}
-	_read_worker(_FakeAdapter(items), "dir", None, None, 2, {"/works/0W", "/works/5W"}, 5, in_q, result)
+	_read_worker(_FakeAdapter(items), "dir", None, None, 2, {"/works/0W", "/works/2W"}, None, 0, in_q, result)
 	chunks = _collect(in_q)
 	processed = [item.id for _, _, batch in chunks for item in batch]
-	assert processed == ["/works/1W", "/works/2W", "/works/3W", "/works/4W", "/works/6W"]
-	assert result["count"] == 5
+	assert processed == ["/works/1W", "/works/3W"]
+	assert result["count"] == 2
 	assert result["skipped"] == 2
 
 

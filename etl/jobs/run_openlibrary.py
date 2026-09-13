@@ -23,14 +23,13 @@ def main() -> None:
 	parser.add_argument("--no-embeddings", action="store_true", help="Skip embedding generation.")
 	parser.add_argument("--max-aux", type=int, default=_env_int("MAX_AUX", 500000))
 	parser.add_argument("--max-works", type=int, default=None,
-		help="Stop after embedding this many NEW works. Unset (or MAX_WORKS env) = process everything remaining.")
+		help="Stop after streaming this many works")
 	parser.add_argument("--no-skip", action="store_true", default=False,
 		help="Re-embed works that already have embeddings (default is to continue/skip them).")
 	parser.add_argument("--reset", "-r", action="store_true",
 		help="Truncate all DB tables first, then process from scratch.")
 	parser.add_argument("--skip-editions", action="store_true",
-		help="Stream works only: skip the editions (+authors) index pre-pass. Much faster, "
-			"but loses edition-enriched metadata (languages, edition subjects/authors, merged dates).")
+		help="(deprecated, no-op")
 	args = parser.parse_args()
 
 	max_works = args.max_works if args.max_works is not None else _env_int("MAX_WORKS", 0) or None
