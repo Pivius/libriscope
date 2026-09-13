@@ -162,8 +162,8 @@ class EmbeddingStore:
 
 	def upsert_work(self, item: CanonicalItem) -> None:
 		sql = text("""
-			INSERT INTO works (id, title, subtitle, description, first_sentence, subjects, genres, authors, languages, first_publish_date, series, source)
-			VALUES (:id, :title, :subtitle, :description, :first_sentence, :subjects, :genres, :authors, :languages, :first_publish_date, :series, 'openlibrary')
+			INSERT INTO works (id, title, subtitle, description, first_sentence, subjects, genres, lc_classifications, authors, languages, first_publish_date, series, source)
+			VALUES (:id, :title, :subtitle, :description, :first_sentence, :subjects, :genres, :lc_classifications, :authors, :languages, :first_publish_date, :series, 'openlibrary')
 			ON CONFLICT (id) DO UPDATE SET
 				title = EXCLUDED.title,
 				subtitle = EXCLUDED.subtitle,
@@ -171,6 +171,7 @@ class EmbeddingStore:
 				first_sentence = EXCLUDED.first_sentence,
 				subjects = EXCLUDED.subjects,
 				genres = EXCLUDED.genres,
+				lc_classifications = EXCLUDED.lc_classifications,
 				authors = EXCLUDED.authors,
 				languages = EXCLUDED.languages,
 				first_publish_date = EXCLUDED.first_publish_date,
@@ -184,6 +185,7 @@ class EmbeddingStore:
 			"first_sentence": item.first_sentence,
 			"subjects": list(item.subjects),
 			"genres": list(item.genres),
+			"lc_classifications": list(item.lc_classifications),
 			"authors": list(item.authors),
 			"languages": list(item.languages),
 			"first_publish_date": item.first_publish_date,
@@ -204,8 +206,8 @@ class EmbeddingStore:
 	def bulk_upsert(self, items: Iterable[CanonicalItem], ids_to_vectors, batch_size: int = 2000) -> None:
 		"""Write many items + their (id -> vector) pairs efficiently."""
 		work_sql = text("""
-			INSERT INTO works (id, title, subtitle, description, first_sentence, subjects, genres, authors, languages, first_publish_date, series, source)
-			VALUES (:id, :title, :subtitle, :description, :first_sentence, :subjects, :genres, :authors, :languages, :first_publish_date, :series, 'openlibrary')
+			INSERT INTO works (id, title, subtitle, description, first_sentence, subjects, genres, lc_classifications, authors, languages, first_publish_date, series, source)
+			VALUES (:id, :title, :subtitle, :description, :first_sentence, :subjects, :genres, :lc_classifications, :authors, :languages, :first_publish_date, :series, 'openlibrary')
 			ON CONFLICT (id) DO UPDATE SET
 				title = EXCLUDED.title,
 				subtitle = EXCLUDED.subtitle,
@@ -213,6 +215,7 @@ class EmbeddingStore:
 				first_sentence = EXCLUDED.first_sentence,
 				subjects = EXCLUDED.subjects,
 				genres = EXCLUDED.genres,
+				lc_classifications = EXCLUDED.lc_classifications,
 				authors = EXCLUDED.authors,
 				languages = EXCLUDED.languages,
 				first_publish_date = EXCLUDED.first_publish_date,
@@ -233,6 +236,7 @@ class EmbeddingStore:
 				"first_sentence": item.first_sentence,
 				"subjects": list(item.subjects),
 				"genres": list(item.genres),
+				"lc_classifications": list(item.lc_classifications),
 				"authors": list(item.authors),
 				"languages": list(item.languages),
 				"first_publish_date": item.first_publish_date,

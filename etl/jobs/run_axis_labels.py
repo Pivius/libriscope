@@ -7,23 +7,97 @@ from typing import Dict, List, Tuple
 from sqlalchemy import create_engine, text
 
 from etl.core.config import load_env
+from etl.core.progress import summary
 
 QUADRANTS = ("top-left", "top-right", "bottom-left", "bottom-right")
 
+LC_PREFIXES: List[Tuple[str, str]] = [
+	("Z", "Bibliography & Library Science"),
+	("U", "Military Science"),
+	("V", "Naval Science"),
+	("TX", "Home Economics"),
+	("TR", "Photography"),
+	("TS", "Manufacturing"),
+	("TL", "Motor Vehicles"),
+	("TK", "Electrical Engineering"),
+	("TA", "Civil Engineering"),
+	("T", "Technology"),
+	("S", "Agriculture"),
+	("RT", "Nursing"),
+	("RD", "Surgery"),
+	("R", "Medicine"),
+	("QL", "Zoology"),
+	("QK", "Botany"),
+	("QH", "Natural History"),
+	("QE", "Geology"),
+	("QD", "Chemistry"),
+	("QC", "Physics"),
+	("QB", "Astronomy"),
+	("QA", "Mathematics"),
+	("Q", "Science"),
+	("PT", "German Literature"),
+	("PS", "American Literature"),
+	("PR", "English Literature"),
+	("PQ", "Romance Literature"),
+	("PN", "Literature (General)"),
+	("PM", "Miscellaneous Languages"),
+	("PJ", "Oriental Languages"),
+	("PA", "Greek & Latin Literature"),
+	("P", "Language & Literature"),
+	("NA", "Architecture"),
+	("N", "Fine Arts"),
+	("M", "Music"),
+	("L", "Education"),
+	("K", "Law"),
+	("J", "Political Science"),
+	("HV", "Social Pathology & Criminology"),
+	("HF", "Commerce"),
+	("HB", "Economic Theory"),
+	("H", "Social Sciences"),
+	("GV", "Recreation"),
+	("G", "Geography & Anthropology"),
+	("F", "Local American History"),
+	("E", "American History"),
+	("D", "World History"),
+	("CT", "Biography"),
+	("C", "Auxiliary Sciences of History"),
+	("BX", "Christian Denominations"),
+	("BT", "Doctrinal Theology"),
+	("BS", "The Bible"),
+	("BR", "Christianity"),
+	("BP", "Islam & Bahaism"),
+	("BM", "Judaism"),
+	("BL", "Religions & Mythology"),
+	("BF", "Psychology"),
+	("BC", "Logic"),
+	("B", "Philosophy & Psychology"),
+	("A", "General Works"),
+]
+
+
+def lc_label(code: str) -> str:
+	"""Map an LC classification code to a readable text label."""
+	code = (code or "").strip().upper()
+	for prefix, label in LC_PREFIXES:
+		if code.startswith(prefix):
+			return label
+	return ""
+
+
 def quadrant_of(x: float, y: float) -> str:
-	"""Map world coords (x,y in [-1,1], +y down on screen) to a screen quadrant."""
+	"""Map world coords to a screen quadrant."""
 	if x < 0:
 		return "top-left" if y < 0 else "bottom-left"
 	return "top-right" if y < 0 else "bottom-right"
 
 
 def tokens_of(row) -> List[str]:
-	subjects, genres = row.subjects or [], row.genres or []
+	"""Readable text labels derived from the work's LC classifications."""
 	out = []
-	for t in list(subjects) + list(genres):
-		t = (t or "").strip().lower()
-		if t:
-			out.append(t)
+	for code in row.lc_classifications or []:
+		label = lc_label(code).lower()
+		if label and label not in out:
+			out.append(label)
 	return out
 
 
@@ -65,7 +139,7 @@ def top_terms(
 
 def main() -> None:
 	parser = argparse.ArgumentParser(
-		description="Auto-label the four map quadrants by their dominant subjects/genres, writing axis-labels.json for the frontend."
+		description="Auto-label the four map quadrants by their dominant LC classifications, writing axis-labels.json for the frontend."
 	)
 	parser.add_argument("--database-url", default=None)
 	parser.add_argument(
@@ -91,7 +165,7 @@ def main() -> None:
 			)).fetchall()
 		}
 		work_rows = conn.execute(text(
-			"SELECT id, subjects, genres FROM works"
+			"SELECT id, lc_classifications FROM works"
 		)).fetchall()
 
 		book_q: Dict[str, Counter] = {q: Counter() for q in QUADRANTS}
@@ -113,7 +187,7 @@ def main() -> None:
 				"SELECT entity_id, x, y FROM map_coords WHERE entity = 'author'"
 			)).fetchall()
 		}
-		# map each author -> the subjects/genres of their works
+
 		author_q: Dict[str, Counter] = {q: Counter() for q in QUADRANTS}
 		author_total: Counter = Counter()
 
@@ -140,7 +214,7 @@ def main() -> None:
 	with open(out_path, "w", encoding="utf-8") as fh:
 		json.dump(payload, fh, ensure_ascii=False, indent=2)
 
-	print(f"Wrote {out_path}")
+	summary(f"wrote {out_path}")
 	print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

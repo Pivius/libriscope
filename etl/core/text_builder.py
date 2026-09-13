@@ -10,12 +10,13 @@ class TextBuilder:
 			item.title or "",
 			item.subtitle or "",
 			item.description or "",
-			item.first_sentence or "",
+			#item.first_sentence or "",
 			" ".join(sorted(item.subjects)) if item.subjects else "",
 			" ".join(sorted(item.genres)) if item.genres else "",
+			#" ".join(sorted(item.lc_classifications)) if item.lc_classifications else "",
 			" ".join(item.authors) if item.authors else "",
 			" ".join(item.series) if item.series else "",
-			item.first_publish_date or "",
+			#item.first_publish_date or "",
 		]
 		return " ".join(p for p in parts if p and p.strip())
 

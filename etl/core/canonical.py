@@ -17,6 +17,9 @@ class CanonicalItem:
 	subjects: List[str] = field(default_factory=list) # type/works
 	genres: List[str] = field(default_factory=list) # type/works (lc_classifications fallback)
 
+	# Library of Congress classification codes
+	lc_classifications: List[str] = field(default_factory=list) # type/works
+
 	# authors simplified (no nested role objects)
 	authors: List[str] = field(default_factory=list) # type/works
 

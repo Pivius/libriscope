@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS works (
 	first_sentence TEXT,
 	subjects TEXT[],
 	genres TEXT[],
+	lc_classifications TEXT[],
 	authors TEXT[],
 	languages TEXT[],
 	first_publish_date TEXT,
