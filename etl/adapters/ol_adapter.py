@@ -3,9 +3,9 @@ import glob
 import gzip
 import json
 from typing import Iterator, Dict, Any, List, Optional, Iterable
-from tqdm import tqdm
 from etl.core.canonical import CanonicalItem
 from etl.core.languages import is_allowed
+from etl.core import progress
 from etl.adapters.base import DatasetAdapter
 
 
@@ -150,36 +150,52 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 		deletes = set()
 		redirects: Dict[str, str] = {}
 
-		# load authors
+		# load authors (one cumulative bar across all chunks)
 		if "authors" in enabled:
-			for f in self._find_files(root, "authors"):
-				for ci in tqdm(self.stream_dump("authors", f), desc=f"indexing authors {os.path.basename(f)}", unit=" rows"):
+			rows = 0
+			bar = progress.bar(self._find_files(root, "authors"), "indexing authors", unit="file")
+			for f in bar:
+				for ci in self.stream_dump("authors", f):
 					if ci and ci.raw:
 						key = ci.raw.get("key") or ci.raw.get("id")
 						if key and (max_aux is None or len(authors_by_key) < max_aux):
 							authors_by_key[str(key)] = {"name": ci.title, "bio": ci.description}
+					rows += 1
+				bar.set_postfix_str(f"{rows:,} rows")
+			progress.summary(f"indexed {len(authors_by_key):,} authors")
 
 		# load deletes
 		if "deletes" in enabled:
-			for f in self._find_files(root, "deletes"):
-				for obj in tqdm(_iter_dump_json(f), desc=f"indexing deletes {os.path.basename(f)}", unit=" lines"):
+			rows = 0
+			bar = progress.bar(self._find_files(root, "deletes"), "indexing deletes", unit="file")
+			for f in bar:
+				for obj in _iter_dump_json(f):
 					tid = obj.get("id") or obj.get("key")
 					if tid:
 						deletes.add(str(tid))
+					rows += 1
+				bar.set_postfix_str(f"{rows:,} rows")
+			progress.summary(f"indexed {len(deletes):,} deletes")
 
 		# load redirects
 		if "redirects" in enabled:
-			for f in self._find_files(root, "redirects"):
-				for obj in tqdm(_iter_dump_json(f), desc=f"indexing redirects {os.path.basename(f)}", unit=" lines"):
+			rows = 0
+			bar = progress.bar(self._find_files(root, "redirects"), "indexing redirects", unit="file")
+			for f in bar:
+				for obj in _iter_dump_json(f):
 					src = obj.get("from") or obj.get("key")
 					dst = obj.get("to")
 					if src and dst:
 						redirects[str(src)] = str(dst)
+					rows += 1
+				bar.set_postfix_str(f"{rows:,} rows")
+			progress.summary(f"indexed {len(redirects):,} redirects")
 
 		works_yielded = 0
 		works_capped = max_works is not None
 		lines_skipped = 0
-		for f in self._find_files(root, "works"):
+		bar = progress.bar(self._find_files(root, "works"), "streaming works", unit="file")
+		for f in bar:
 			if works_capped and works_yielded >= max_works:
 				break
 
@@ -195,8 +211,7 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 					remaining -= 1
 				lines_skipped = offset
 
-				bar = tqdm(fh, desc=f"streaming works {os.path.basename(f)}", unit=" lines")
-				for line in bar:
+				for line in fh:
 					raw = line.rstrip()
 					if not raw:
 						continue
@@ -253,3 +268,4 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 
 					if works_capped and works_yielded >= max_works:
 						break
+		progress.summary(f"streamed {works_yielded:,} works")

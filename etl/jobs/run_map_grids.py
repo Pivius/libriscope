@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from typing import Dict, List, Tuple
 
 from sqlalchemy import create_engine, text
-from tqdm import tqdm
+from etl.core import progress
 
 from etl.core.config import load_env
 
@@ -118,7 +118,7 @@ def build_entity_grid(
 	"""
 	rows = _rows_for_entity(read_conn, entity)
 	written = 0
-	for level in tqdm(levels, desc=f"gridding {entity}", unit="level"):
+	for level in progress.bar(levels, f"gridding {entity}", unit="level"):
 		acc = aggregate_rows(rows, level)
 		if not acc:
 			continue
@@ -140,10 +140,10 @@ def build_entity_grid(
 			}
 			for (cx, cy), (count, x_avg, y_avg, sample) in sorted(acc.items())
 		]
-		for i in tqdm(
+		for i in progress.bar(
 			range(0, len(inserts), _WRITE_CHUNK),
-			desc=f"  writing {entity} level {level}",
-			leave=False,
+			f"writing {entity} level {level}",
+			total=len(inserts), unit="row", leave=False,
 		):
 			write_conn.execute(_INSERT_SQL, inserts[i:i + _WRITE_CHUNK])
 		written += len(inserts)
@@ -175,9 +175,8 @@ def main() -> None:
 
 	engine = create_engine(url)
 	t0 = time.monotonic()
+	progress.init()
 
-	# Separate read/write connections: the map_coords read runs a server-side
-	# cursor (yield_per) which cannot share a connection with psycopg2 executemany.
 	with engine.begin() as write_conn:
 		write_conn.execute(text("DELETE FROM map_grids"))
 		total = 0
@@ -185,10 +184,8 @@ def main() -> None:
 			for entity in ("book", "author"):
 				total += build_entity_grid(read_conn, write_conn, entity, levels)
 
-	print(
-		f"[{time.monotonic()-t0:.0f}s] Rebuilt map_grids: {total:,} rows "
-		f"({len(levels)} levels)", flush=True,
-	)
+	progress.summary(f"Rebuilt map_grids: {total:,} rows "
+		f"({len(levels)} levels)")
 
 
 if __name__ == "__main__":

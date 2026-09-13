@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import numpy as np
 from sqlalchemy import create_engine, text, TextClause
-from tqdm import tqdm
+from etl.core import progress
 
 from etl.core.config import load_env
 
@@ -34,7 +34,7 @@ def _load_vectors(conn, sql: TextClause, total: int, desc: str):
 		yield_per=_STREAM_CHUNK
 	).execute(sql)
 
-	for row_id, emb_text in tqdm(result, desc=desc, total=total):
+	for row_id, emb_text in progress.bar(result, desc, total=total, unit="row"):
 		vec = _parse_vector(emb_text)
 
 		if vec is None:
@@ -89,9 +89,9 @@ def _normalize_axes(coords: np.ndarray) -> np.ndarray:
 def _coord_rows(ids: Sequence[object], matrix: np.ndarray, entity: str) -> List[dict]:
 	rows = []
 	if len(ids) > 0:
-		print(f"Running PCA on {len(ids):,} {entity} embeddings ...", flush=True)
+		progress.summary(f"running PCA on {len(ids):,} {entity} embeddings ...")
 		proj = _normalize_axes(_pca_2d(matrix))
-		for eid, coord in tqdm(zip(ids, proj), desc=f"computing {entity} coords", total=len(ids)):
+		for eid, coord in progress.bar(zip(ids, proj), f"computing {entity} coords", total=len(ids), unit="row"):
 			rows.append({
 				"entity": entity,
 				"entity_id": eid,
@@ -115,6 +115,7 @@ def main() -> None:
 
 	engine = create_engine(url)
 	t0 = time.monotonic()
+	progress.init()
 
 	with engine.connect() as conn:
 		n_books = conn.execute(text(
@@ -123,7 +124,7 @@ def main() -> None:
 		n_authors = conn.execute(text(
 			"SELECT count(*) FROM authors"
 		)).scalar_one()
-	print(f"[{time.monotonic()-t0:.0f}s] {n_books:,} books, {n_authors:,} authors", flush=True)
+	progress.summary(f"{n_books:,} books, {n_authors:,} authors")
 
 	with engine.connect() as conn:
 		book_ids, book_matrix = _load_vectors(
@@ -138,7 +139,7 @@ def main() -> None:
 			n_authors,
 			"loading authors",
 		)
-	print(f"[{time.monotonic()-t0:.0f}s] loaded {len(book_ids):,} books, {len(author_ids):,} authors", flush=True)
+	progress.summary(f"loaded {len(book_ids):,} books, {len(author_ids):,} authors")
 
 	rows = _coord_rows(book_ids, book_matrix, "book") + _coord_rows(author_ids, author_matrix, "author")
 
@@ -150,10 +151,10 @@ def main() -> None:
 			y = EXCLUDED.y
 	""")
 	with engine.begin() as conn:
-		for i in tqdm(range(0, len(rows), _WRITE_CHUNK), desc="writing map_coords"):
+		for i in progress.bar(range(0, len(rows), _WRITE_CHUNK), "writing map_coords", total=len(rows), unit="row"):
 			conn.execute(sql, rows[i:i + _WRITE_CHUNK])
 
-	print(f"[{time.monotonic()-t0:.0f}s] Wrote {len(rows):,} map coordinates ({len(book_ids):,} books, {len(author_ids):,} authors)", flush=True)
+	progress.summary(f"Wrote {len(rows):,} map coordinates ({len(book_ids):,} books, {len(author_ids):,} authors)")
 
 
 if __name__ == "__main__":

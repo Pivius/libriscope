@@ -9,6 +9,7 @@ import numpy as np
 from sqlalchemy import create_engine, text
 from tqdm import tqdm
 
+from etl.core import progress
 from etl.core.config import load_env
 
 _STREAM_CHUNK = 2000
@@ -38,7 +39,7 @@ def load_author_names(dump_path: str, needed: Set[str]) -> Dict[str, str]:
 		return names
 
 	with gzip.open(dump_path, "rt", encoding="utf-8", errors="ignore") as fh:
-		for line in tqdm(fh, desc="scanning authors dump", unit=" lines"):
+		for line in progress.bar(fh, "scanning authors dump", unit="row"):
 			parts = line.split("\t", 4)
 			if len(parts) < 5:
 				continue
@@ -92,6 +93,7 @@ def main() -> None:
 
 	engine = create_engine(url)
 	t0 = time.monotonic()
+	progress.init()
 
 	# pass 1: collect every work's author keys (no vectors kept in memory)
 	with engine.connect() as conn:
@@ -101,18 +103,17 @@ def main() -> None:
 
 	author_keys: Set[str] = set()
 	with engine.connect() as conn:
-		for work_id, authors in tqdm(
+		for work_id, authors in progress.bar(
 			_stream_work_embedding_rows(conn, _STREAM_CHUNK, select_embedding=False),
-			desc="collecting author keys",
-			total=n_works,
+			"collecting author keys", total=n_works, unit="work",
 		):
 			author_keys.update(a for a in (authors or []) if a)
-	print(f"[{time.monotonic()-t0:.0f}s] collected {len(author_keys):,} author keys", flush=True)
+	progress.summary(f"collected {len(author_keys):,} author keys")
 
 	# resolve key -> name from the raw dump
 	names = load_author_names(args.authors_dump, author_keys)
 	unresolved = author_keys - set(names)
-	print(f"[{time.monotonic()-t0:.0f}s] resolved {len(names):,} names, {len(unresolved):,} unresolved", flush=True)
+	progress.summary(f"resolved {len(names):,} names, {len(unresolved):,} unresolved")
 
 	# pass 2: stream again, aggregating per-author running sums + counts in numpy
 	sums: Dict[str, np.ndarray] = {}
@@ -120,10 +121,9 @@ def main() -> None:
 	changed: List[dict] = []
 	dtype = np.float32
 	with engine.connect() as conn:
-		for work_id, authors, emb_text in tqdm(
+		for work_id, authors, emb_text in progress.bar(
 			_stream_work_embedding_rows(conn, _STREAM_CHUNK, select_embedding=True),
-			desc="aggregating authors",
-			total=n_works,
+			"aggregating authors", total=n_works, unit="work",
 		):
 			vec = _parse_vector(emb_text)
 			if vec is None or vec.size == 0:
@@ -141,21 +141,20 @@ def main() -> None:
 				else:
 					sums[name] += vec
 					counts[name] += 1
-	print(
-		f"[{time.monotonic()-t0:.0f}s] aggregated {len(sums):,} display names over {n_works:,} works; "
-		f"{len(changed):,} works need backfill",
-		flush=True,
+	progress.summary(
+		f"aggregated {len(sums):,} display names over {n_works:,} works; "
+		f"{len(changed):,} works need backfill"
 	)
 
 	author_rows = []
-	for name, total_vec in tqdm(sums.items(), desc="computing centroids"):
+	for name, total_vec in progress.bar(sums.items(), "computing centroids", unit="author"):
 		centroid = total_vec / counts[name]
 		author_rows.append({
 			"name": name,
 			"work_count": counts[name],
 			"embedding": _embedding_literal(centroid),
 		})
-	print(f"[{time.monotonic()-t0:.0f}s] computed {len(author_rows):,} author centroids", flush=True)
+	progress.summary(f"computed {len(author_rows):,} author centroids")
 
 	with engine.begin() as conn:
 		# Drop the HNSW index for the bulk load: per-insert index maintenance on
@@ -168,27 +167,26 @@ def main() -> None:
 			"INSERT INTO authors (name, work_count, embedding) "
 			"VALUES (:name, :work_count, :embedding)"
 		)
-		for i in tqdm(range(0, len(author_rows), _WRITE_CHUNK), desc="writing authors"):
+		for i in progress.bar(range(0, len(author_rows), _WRITE_CHUNK), "writing authors", total=len(author_rows), unit="author"):
 			conn.execute(insert_sql, author_rows[i:i + _WRITE_CHUNK])
 
 		# backfill works.authors with readable names
 		update_sql = text("UPDATE works SET authors = :authors WHERE id = :id")
-		for i in tqdm(range(0, len(changed), _WRITE_CHUNK), desc="backfilling works.authors"):
+		for i in progress.bar(range(0, len(changed), _WRITE_CHUNK), "backfilling works.authors", total=len(changed), unit="work"):
 			conn.execute(update_sql, changed[i:i + _WRITE_CHUNK])
 
 	# Build the HNSW index in its own transaction: if it fails or is
 	# interrupted, the committed author data above must survive.
-	print(f"[{time.monotonic()-t0:.0f}s] building hnsw index...", flush=True)
+	progress.summary(f"building hnsw index...")
 	with engine.begin() as conn:
 		conn.execute(text(
 			"CREATE INDEX idx_authors_embedding "
 			"ON authors USING hnsw (embedding vector_cosine_ops)"
 		))
 
-	print(
-		f"[{time.monotonic()-t0:.0f}s] Wrote {len(author_rows):,} authors from {n_works:,} works "
-		f"({len(names):,} names resolved, {len(unresolved):,} unresolved keys)",
-		flush=True,
+	progress.summary(
+		f"wrote {len(author_rows):,} authors from {n_works:,} works "
+		f"({len(names):,} names resolved, {len(unresolved):,} unresolved keys)"
 	)
 	if unresolved:
 		print("Unresolved keys (kept as-is):", sorted(unresolved)[:20])

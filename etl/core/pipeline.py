@@ -3,9 +3,8 @@ from queue import Queue
 from threading import Thread
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from tqdm import tqdm
-
 from etl.adapters.ol_adapter import OpenLibraryCSVAdapter
+from etl.core import progress
 from etl.core.text_builder import build_text
 from etl.embeddings.batch import iter_batches
 
@@ -205,7 +204,6 @@ def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 	)
 
 	out_ended = False
-	bar = tqdm(desc="ETL", unit="batch", ncols=100)
 
 	try:
 		if model is not None:
@@ -228,11 +226,6 @@ def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 				vectors = model.encode(texts, batch_size=chunk_size)
 
 			out_q.put((ids, items, vectors))
-			bar.update(1)
-			bar.set_postfix_str(
-				f"{read_result.get('total_seen', 0):,} seen"
-				f" / {read_result['count']:,} new / {read_result['skipped']:,} skip"
-			)
 
 		read_worker.join()
 		out_q.put(_SENTINEL)
@@ -242,9 +235,12 @@ def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 		for result, name in ((read_result, "reader"), (write_result, "writer")):
 			if result.get("exc") is not None:
 				raise RuntimeError(f"pipeline {name} thread failed") from result["exc"]
-	finally:
-		bar.close()
 
+		progress.summary(
+			f"embedded {read_result['count']:,} new works "
+			f"({read_result.get('total_seen', 0):,} seen, {read_result['skipped']:,} skipped)"
+		)
+	finally:
 		if not out_ended:
 			try:
 				out_q.put(_SENTINEL)
@@ -271,7 +267,6 @@ def _run_serial(adapter, store, model, processed_dir: str, enabled,
 	total_seen = 0
 	items = adapter.collate_from_dir(processed_dir, enabled=enabled, max_aux=max_aux,
 		max_works=max_works, offset=offset)
-	bar = tqdm(desc="ETL", unit="batch", ncols=100)
 
 	try:
 		if model is not None and store is not None:
@@ -312,14 +307,12 @@ def _run_serial(adapter, store, model, processed_dir: str, enabled,
 						store.upsert_embedding(id_, vec)
 
 			count += len(items_out)
-			bar.update(1)
-			bar.set_postfix_str(
-				f"{total_seen:,} seen / {count:,} new / {skipped:,} skip"
-			)
 	finally:
-		bar.close()
-		
 		if model is not None and store is not None:
 			print("Recreating HNSW index ...", flush=True)
 			store.create_embedding_index()
+
+	progress.summary(
+		f"embedded {count:,} new works ({total_seen:,} seen, {skipped:,} skipped)"
+	)
 	return count
