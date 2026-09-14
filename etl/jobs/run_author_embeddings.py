@@ -95,7 +95,7 @@ def main() -> None:
 	t0 = time.monotonic()
 	progress.init()
 
-	# pass 1: collect every work's author keys (no vectors kept in memory)
+	# pass 1: collect every work's author keys
 	with engine.connect() as conn:
 		n_works = conn.execute(text(
 			"SELECT count(*) FROM works w JOIN work_embeddings we ON we.work_id = w.id"
@@ -157,8 +157,6 @@ def main() -> None:
 	progress.summary(f"computed {len(author_rows):,} author centroids")
 
 	with engine.begin() as conn:
-		# Drop the HNSW index for the bulk load: per-insert index maintenance on
-		# the growing graph made each 50k chunk slower than the last (88s -> 232s).
 		conn.execute(text("DROP INDEX IF EXISTS idx_authors_embedding"))
 		conn.execute(text("DELETE FROM authors"))
 		conn.execute(text("DELETE FROM map_coords WHERE entity = 'author'"))
@@ -175,21 +173,25 @@ def main() -> None:
 		for i in progress.bar(range(0, len(changed), _WRITE_CHUNK), "backfilling works.authors", total=len(changed), unit="work"):
 			conn.execute(update_sql, changed[i:i + _WRITE_CHUNK])
 
-	# Build the HNSW index in its own transaction: if it fails or is
-	# interrupted, the committed author data above must survive.
-	progress.summary(f"building hnsw index...")
+	t0_index = time.monotonic()
 	with engine.begin() as conn:
 		conn.execute(text(
 			"CREATE INDEX idx_authors_embedding "
 			"ON authors USING hnsw (embedding vector_cosine_ops)"
 		))
+	progress.summary(f"rebuilt authors HNSW index in {time.monotonic() - t0_index:.0f}s")
 
 	progress.summary(
 		f"wrote {len(author_rows):,} authors from {n_works:,} works "
 		f"({len(names):,} names resolved, {len(unresolved):,} unresolved keys)"
 	)
 	if unresolved:
-		print("Unresolved keys (kept as-is):", sorted(unresolved)[:20])
+		# stdout on Windows is cp1252, author names contain non-Latin-1
+		# characters, so they go to a UTF-8 file instead
+		path = "unresolved_author_keys.txt"
+		with open(path, "w", encoding="utf-8") as fh:
+			fh.write("\n".join(sorted(unresolved)[:20]) + "\n")
+		progress.summary(f"wrote {path}")
 
 
 if __name__ == "__main__":

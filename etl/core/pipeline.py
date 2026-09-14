@@ -1,4 +1,5 @@
 import os
+import time
 from queue import Queue
 from threading import Thread
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -250,8 +251,9 @@ def _run_parallel(adapter, store, model, processed_dir: str, enabled,
 			write_worker.join(timeout=60)
 			read_worker.join(timeout=5)
 		if model is not None:
-			print("Recreating HNSW index ...", flush=True)
+			t0 = time.monotonic()
 			store.create_embedding_index()
+			progress.summary(f"rebuilt HNSW index in {time.monotonic() - t0:.0f}s")
 	return read_result["count"]
 
 
@@ -309,8 +311,9 @@ def _run_serial(adapter, store, model, processed_dir: str, enabled,
 			count += len(items_out)
 	finally:
 		if model is not None and store is not None:
-			print("Recreating HNSW index ...", flush=True)
+			t0 = time.monotonic()
 			store.create_embedding_index()
+			progress.summary(f"rebuilt HNSW index in {time.monotonic() - t0:.0f}s")
 
 	progress.summary(
 		f"embedded {count:,} new works ({total_seen:,} seen, {skipped:,} skipped)"
