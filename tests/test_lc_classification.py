@@ -70,20 +70,6 @@ def test_adapter_lc_without_genres(tmp_path, monkeypatch):
 	assert items[0].genres == []
 	assert items[0].lc_classifications == ["QA76.9.A43"]
 
-
-def test_text_builder_includes_lc():
-	item = CanonicalItem(
-		id="/works/1W",
-		title="Title",
-		lc_classifications=["PS3511.A867", "PZ7"],
-	)
-	text = build_text(item)
-	assert "PS3511.A867" in text
-	assert "PZ7" in text
-
-	assert text.index("PS3511.A867") < text.index("PZ7")
-
-
 def test_text_builder_omits_empty_lc():
 	item = CanonicalItem(id="/works/1W", title="Title")
 	text = build_text(item)

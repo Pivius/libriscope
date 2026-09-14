@@ -1,13 +1,10 @@
 import argparse
-import gzip
-import json
 import os
 import time
 from typing import Dict, List, Optional, Set
 
 import numpy as np
 from sqlalchemy import create_engine, text
-from tqdm import tqdm
 
 from etl.core import progress
 from etl.core.config import load_env
@@ -28,41 +25,11 @@ def _embedding_literal(vec: np.ndarray) -> str:
 	return str(vec.tolist())
 
 
-def load_author_names(dump_path: str, needed: Set[str]) -> Dict[str, str]:
-	"""Stream the raw `ol_dump_authors.txt.gz` and resolve author key -> name.
-
-		Only keys in `needed` are kept, so the 763MB file is scanned once and we
-		return early once every requested key has been found.
-	"""
-	names: Dict[str, str] = {}
-	if not needed or not os.path.exists(dump_path):
-		return names
-
-	with gzip.open(dump_path, "rt", encoding="utf-8", errors="ignore") as fh:
-		for line in progress.bar(fh, "scanning authors dump", unit="row"):
-			parts = line.split("\t", 4)
-			if len(parts) < 5:
-				continue
-			key = parts[1]
-			if key not in needed:
-				continue
-			try:
-				obj = json.loads(parts[4])
-			except Exception:
-				continue
-			name = obj.get("name")
-			if name:
-				names[key] = name
-				if len(names) >= len(needed):
-					break
-	return names
-
-
 def _stream_work_embedding_rows(conn, chunk_size: int, select_embedding: bool):
 	"""Server-side cursor over works rows.
 
-		The DB paginates results and keeps peak memory usage flat. Don't hold all 1M+ vector literals in Python. 
-		Pass 1 only needs the author keys, so the 2.8 GB of embedding text is transferred only once, during pass 2.
+		The DB paginates results and keeps peak memory usage flat. Don't hold all 1M+ vector literals in Python.
+		Pass 1 only needs the author names, so the 2.8 GB of embedding text is transferred only once, during pass 2.
 	"""
 	cols = "w.id, w.authors" + (", we.embedding::text" if select_embedding else "")
 	result = conn.execution_options(yield_per=chunk_size).execute(text(
@@ -75,14 +42,12 @@ def _stream_work_embedding_rows(conn, chunk_size: int, select_embedding: bool):
 
 def main() -> None:
 	parser = argparse.ArgumentParser(
-		description="Compute author embeddings (centroid of an author's works) from work_embeddings, resolving human names from the raw authors dump."
-	)
+		description="Compute author embeddings from work_embeddings. ")
 	parser.add_argument("--database-url", default=None)
 	parser.add_argument(
 		"--authors-dump",
-		default=os.environ.get("AUTHORS_DUMP", "data/raw/openlibrary/ol_dump_authors.txt.gz"),
-		help="Path to the raw OpenLibrary authors dump (ol_dump_authors.txt.gz).",
-	)
+		default=None,
+		help="(deprecated) Name resolution now happens in the ETL adapter.")
 	args = parser.parse_args()
 
 	load_env()
@@ -95,30 +60,24 @@ def main() -> None:
 	t0 = time.monotonic()
 	progress.init()
 
-	# pass 1: collect every work's author keys
+	# pass 1: collect every work's author names
 	with engine.connect() as conn:
 		n_works = conn.execute(text(
 			"SELECT count(*) FROM works w JOIN work_embeddings we ON we.work_id = w.id"
 		)).scalar()
 
-	author_keys: Set[str] = set()
+	author_names: Set[str] = set()
 	with engine.connect() as conn:
 		for work_id, authors in progress.bar(
 			_stream_work_embedding_rows(conn, _STREAM_CHUNK, select_embedding=False),
-			"collecting author keys", total=n_works, unit="work",
+			"collecting author names", total=n_works, unit="work",
 		):
-			author_keys.update(a for a in (authors or []) if a)
-	progress.summary(f"collected {len(author_keys):,} author keys")
-
-	# resolve key -> name from the raw dump
-	names = load_author_names(args.authors_dump, author_keys)
-	unresolved = author_keys - set(names)
-	progress.summary(f"resolved {len(names):,} names, {len(unresolved):,} unresolved")
+			author_names.update(a for a in (authors or []) if a)
+	progress.summary(f"collected {len(author_names):,} author names")
 
 	# pass 2: stream again, aggregating per-author running sums + counts in numpy
 	sums: Dict[str, np.ndarray] = {}
 	counts: Dict[str, int] = {}
-	changed: List[dict] = []
 	dtype = np.float32
 	with engine.connect() as conn:
 		for work_id, authors, emb_text in progress.bar(
@@ -129,12 +88,7 @@ def main() -> None:
 			if vec is None or vec.size == 0:
 				continue
 
-			keys = [k for k in (authors or []) if k is not None]
-			display = [names.get(k) or k for k in keys if k is not None]
-
-			if display != keys:
-				changed.append({"id": work_id, "authors": display})
-			for name in display:
+			for name in (a for a in (authors or []) if a):
 				if name not in sums:
 					sums[name] = vec.astype(dtype, copy=True)
 					counts[name] = 1
@@ -142,8 +96,7 @@ def main() -> None:
 					sums[name] += vec
 					counts[name] += 1
 	progress.summary(
-		f"aggregated {len(sums):,} display names over {n_works:,} works; "
-		f"{len(changed):,} works need backfill"
+		f"aggregated {len(sums):,} authors over {n_works:,} works"
 	)
 
 	author_rows = []
@@ -168,11 +121,6 @@ def main() -> None:
 		for i in progress.bar(range(0, len(author_rows), _WRITE_CHUNK), "writing authors", total=len(author_rows), unit="author"):
 			conn.execute(insert_sql, author_rows[i:i + _WRITE_CHUNK])
 
-		# backfill works.authors with readable names
-		update_sql = text("UPDATE works SET authors = :authors WHERE id = :id")
-		for i in progress.bar(range(0, len(changed), _WRITE_CHUNK), "backfilling works.authors", total=len(changed), unit="work"):
-			conn.execute(update_sql, changed[i:i + _WRITE_CHUNK])
-
 	t0_index = time.monotonic()
 	with engine.begin() as conn:
 		conn.execute(text(
@@ -182,16 +130,8 @@ def main() -> None:
 	progress.summary(f"rebuilt authors HNSW index in {time.monotonic() - t0_index:.0f}s")
 
 	progress.summary(
-		f"wrote {len(author_rows):,} authors from {n_works:,} works "
-		f"({len(names):,} names resolved, {len(unresolved):,} unresolved keys)"
+		f"wrote {len(author_rows):,} authors from {n_works:,} works"
 	)
-	if unresolved:
-		# stdout on Windows is cp1252, author names contain non-Latin-1
-		# characters, so they go to a UTF-8 file instead
-		path = "unresolved_author_keys.txt"
-		with open(path, "w", encoding="utf-8") as fh:
-			fh.write("\n".join(sorted(unresolved)[:20]) + "\n")
-		progress.summary(f"wrote {path}")
 
 
 if __name__ == "__main__":

@@ -94,7 +94,8 @@ def quadrant_of(x: float, y: float) -> str:
 def tokens_of(row) -> List[str]:
 	"""Readable text labels derived from the work's LC classifications."""
 	out = []
-	for code in row.lc_classifications or []:
+	lc = getattr(row, "lc_classifications", None) or []
+	for code in lc:
 		label = lc_label(code).lower()
 		if label and label not in out:
 			out.append(label)
@@ -191,8 +192,10 @@ def main() -> None:
 		author_q: Dict[str, Counter] = {q: Counter() for q in QUADRANTS}
 		author_total: Counter = Counter()
 
+		# Maybe subject and genres instead of lc_classification. 
+		# Not sure which is better yet.
 		work_rows = conn.execute(text(
-			"SELECT authors, subjects, genres FROM works"
+			"SELECT authors, lc_classifications FROM works"
 		)).fetchall()
 		for row in work_rows:
 			for name in (row[0] or []):

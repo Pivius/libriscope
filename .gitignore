@@ -8,3 +8,5 @@ __pycache__/
 .filestructure
 /backend/target/
 /frontend/public/axis-labels.json
+
+unresolved_author_keys.txt
