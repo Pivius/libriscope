@@ -194,7 +194,8 @@ class OpenLibraryCSVAdapter(DatasetAdapter):
 		works_yielded = 0
 		works_capped = max_works is not None
 		lines_skipped = 0
-		bar = progress.bar(self._find_files(root, "works"), "streaming works", unit="file")
+		files = self._find_files(root, "works")
+		bar = progress.bar(files, "streaming works", unit="file", total=len(files))
 		for f in bar:
 			if works_capped and works_yielded >= max_works:
 				break

@@ -140,12 +140,15 @@ def build_entity_grid(
 			}
 			for (cx, cy), (count, x_avg, y_avg, sample) in sorted(acc.items())
 		]
-		for i in progress.bar(
+		num_batches = (len(inserts) + _WRITE_CHUNK - 1) // _WRITE_CHUNK
+		bar = progress.bar(
 			range(0, len(inserts), _WRITE_CHUNK),
 			f"writing {entity} level {level}",
-			total=len(inserts), unit="row", leave=False,
-		):
+			total=num_batches, unit="batch", leave=False,
+		)
+		for i in bar:
 			write_conn.execute(_INSERT_SQL, inserts[i:i + _WRITE_CHUNK])
+			bar.set_postfix_str(f"{min(i + _WRITE_CHUNK, len(inserts)):,}/{len(inserts):,} rows")
 		written += len(inserts)
 	return written
 

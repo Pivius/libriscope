@@ -6,7 +6,7 @@ CARGO ?= cargo
 -include .env
 export DATABASE_URL
 
-.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords map-grids axis-labels db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
+.PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords map-grids axis-labels post-etl db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
 
 help:
 	@echo "Available targets:"
@@ -19,6 +19,7 @@ help:
 	@echo "  map-coords           Compute 2D PCA map coordinates (books + authors)"
 	@echo "  map-grids            Rebuild map_grids LOD aggregates (ARGS=\"--levels 0..13\")"
 	@echo "  axis-labels          Regenerate frontend/public/axis-labels.json quadrant labels (ARGS=--out FILE)"
+	@echo "  post-etl             Run author-embeddings, map-coords, map-grids, axis-labels in sequence"
 	@echo "  db-init              Apply infra/init.sql schema"
 	@echo "  db-clear             Truncate all data tables (keeps schema)"
 	@echo "  inspect              Inspect a gz dump (FILE=<file>)"
@@ -58,6 +59,8 @@ map-grids:
 
 axis-labels:
 	$(PYTHON) -m etl.jobs.run_axis_labels $(ARGS)
+
+post-etl: author-embeddings map-coords map-grids axis-labels
 
 db-init:
 	psql -f infra/init.sql "$(DATABASE_URL)"

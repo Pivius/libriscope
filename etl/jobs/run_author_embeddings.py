@@ -118,8 +118,12 @@ def main() -> None:
 			"INSERT INTO authors (name, work_count, embedding) "
 			"VALUES (:name, :work_count, :embedding)"
 		)
-		for i in progress.bar(range(0, len(author_rows), _WRITE_CHUNK), "writing authors", total=len(author_rows), unit="author"):
+		num_batches = (len(author_rows) + _WRITE_CHUNK - 1) // _WRITE_CHUNK
+		bar = progress.bar(range(0, len(author_rows), _WRITE_CHUNK), "writing authors",
+			total=num_batches, unit="batch")
+		for i in bar:
 			conn.execute(insert_sql, author_rows[i:i + _WRITE_CHUNK])
+			bar.set_postfix_str(f"{min(i + _WRITE_CHUNK, len(author_rows)):,}/{len(author_rows):,} authors")
 
 	t0_index = time.monotonic()
 	with engine.begin() as conn:

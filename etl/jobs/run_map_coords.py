@@ -151,8 +151,12 @@ def main() -> None:
 			y = EXCLUDED.y
 	""")
 	with engine.begin() as conn:
-		for i in progress.bar(range(0, len(rows), _WRITE_CHUNK), "writing map_coords", total=len(rows), unit="row"):
+		num_batches = (len(rows) + _WRITE_CHUNK - 1) // _WRITE_CHUNK
+		bar = progress.bar(range(0, len(rows), _WRITE_CHUNK), "writing map_coords",
+			total=num_batches, unit="batch")
+		for i in bar:
 			conn.execute(sql, rows[i:i + _WRITE_CHUNK])
+			bar.set_postfix_str(f"{min(i + _WRITE_CHUNK, len(rows)):,}/{len(rows):,} rows")
 
 	progress.summary(f"Wrote {len(rows):,} map coordinates ({len(book_ids):,} books, {len(author_ids):,} authors)")
 
