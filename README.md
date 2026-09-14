@@ -1,53 +1,37 @@
 # Libriscope
 
-A semantic literature discovery system that recommends books based on meaning, themes and tone, rather than 
-than simple genre matching.
+Semantic map of books and authors.
+When you select a work, it returns its nearest neighbors in embedding space.
 
-Download the latest database dump OpenLibrary ingest scripts [here](https://openlibrary.org/developers/dumps).
+Raw OpenLibrary dumps are at https://openlibrary.org/developers/dumps
 
----
+![Preview](.README/Preview.gif)
 
-## Build
-
-Make commands are provided to coordinate the ETL, backend and frontend.
-
-```
-make install			# Install ETL dependencies
-make db-init			# Apply database schema
-make etl				# Run ingest (raw -> embeddings -> DB)
-make backend-build		# Build Rust API
-make backend-run		# Run Rust API
-make frontend-dev		# Start frontend dev server
-```
-
-Set `DATABASE_URL` and `EMBEDDINGS_MODEL` in your `.env` file
-
----
-
-## Use
-
-Libriscope exposes a simple REST API in Rust and pgvector for low-latency similarity queries:
+## Quick start
 
 ```bash
-# Get similarity-based recommendations for a work
-curl -X POST http://localhost:8080/recommend \
-	-H "Content-Type: application/json" \
-	-d '{"work_id": "OL45883W", "limit": 5}'
-
-# Inspect a raw OpenLibrary dump file
-make inspect FILE=data/ol_dump_works.txt.gz
+make install                                  # ETL dependencies
+make db-init                                  # create or sync the schema
+make process-data                             # raw dumps to TSV chunks
+make etl ARGS="--max-works 500000 --reset"    # ingest and embed
+make author-embeddings                        # author centroids
+make map-coords                               # PCA projection
+make map-grids                                # LOD aggregates
+make axis-labels                              # quadrant labels
+make backend-build
+make backend-run                              # serves on :8080
+make frontend-install
+make frontend-dev
 ```
 
----
+Set `DATABASE_URL` and `EMBEDDINGS_MODEL` in `.env`.
 
-## Data Architecture
+## Components
 
-The pipeline consists of four stages:
-- ETL: Parses raw OpenLibrary dumps (works, authors, editions), normalizes metadata and sends chunks to Ollama to generate vector embeddings.
-- Database: A PostgreSQL + pgvector database that persists entity models alongside high-dimensional vector embeddings with HNSW indexing for cos-dist queries.
-- Backend: API handling vector search, metadata filtering and result aggregation.
-- Frontend: Visual client for browsing 2D projections and semantic recommendations
+1. **ETL**: It streams TSV chunks of the OpenLibrary dump, keeps kind of works with English titles via fasttext, resolves author keys to names, embeds each work locally with sentence-transformers, and writes to Postgres.
+2. **Database**: It stores metadata, vectors under an HNSW cosine index, 2D coordinates, and lod grid aggregates.
+3. **Backend**: It handles recommendations, search, and map tiles.
+4. **Frontend**: It renders the map, requests viewport tiles at the right lod for the zoom, and handles selection and searching.
 
----
-
-See [docs/deployment.md](docs/deployment.md) for full details.
+[docs/deployment.md](docs/deployment.md) covers setup. 
+[docs/model.md](docs/model.md) for the more indepth info about the current model embeddings.
