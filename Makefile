@@ -3,6 +3,9 @@ PIP ?= pip
 PYTEST ?= pytest
 CARGO ?= cargo
 
+-include .env
+export DATABASE_URL
+
 .PHONY: help install test etl process-data rebuild-embeddings author-embeddings map-coords map-grids axis-labels db-up db-down db-init db-clear inspect model-check backend-build backend-run backend-test frontend-install frontend-dev frontend-build frontend-lint
 
 help:
@@ -57,10 +60,11 @@ axis-labels:
 	$(PYTHON) -m etl.jobs.run_axis_labels $(ARGS)
 
 db-init:
-	psql "$(DATABASE_URL)" -f infra/init.sql
+	psql -f infra/init.sql "$(DATABASE_URL)"
+	$(PYTHON) scripts/migrate_schema.py
 
 db-clear:
-	psql "$(DATABASE_URL)" -c "TRUNCATE TABLE works, work_embeddings, ratings, authors, map_coords, map_grids CASCADE;"
+	psql -c "TRUNCATE TABLE works, work_embeddings, ratings, authors, map_coords, map_grids CASCADE;" "$(DATABASE_URL)"
 
 inspect:
 	$(PYTHON) scripts/inspect_gz_json.py "$(PATH)" --show-keys
